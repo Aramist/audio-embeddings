@@ -1,0 +1,7 @@
+[project]
+name = "partitioning-embeddings"
+version = "0.0.1"
+description = "A package for generating embeddings from a large set of pretrained audio models for further experimentation."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = ["torch", "torchaudio", 'librosa', 'numpy', 'tqdm', 'scipy', 'transformers', 'soundfile', 'torchlibrosa']
