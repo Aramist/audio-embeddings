@@ -203,9 +203,13 @@ class Cnn14(nn.Module):
 
 
 class PannEmbedder(AudioEmbedder):
-    """Link to pretrained weights: https://zenodo.org/record/3987831/files/Cnn14_mAP%3D0.431.pth?download=1"""
+    """Link to pretrained weights: https://zenodo.org/record/3987831/files/Cnn14_mAP%3D0.431.pth?download=1
+    The base Zenodo record (https://zenodo.org/records/3987831) lists more model configurations, but
+    I can't find any documentation on the configurations for the inputs and architecture. In theory
+    much of this can be reconstructed by looking at the shape of the model weights if necessary.
+    """
 
-    weights_url: str = (
+    PRETRAINED_WEIGHTS_URL: str = (
         r"https://zenodo.org/record/3987831/files/Cnn14_mAP%3D0.431.pth?download=1"
     )
 
@@ -231,7 +235,7 @@ class PannEmbedder(AudioEmbedder):
         """
         model = cls()
         state_dict = torch.hub.load_state_dict_from_url(
-            cls.weights_url,
+            cls.PRETRAINED_WEIGHTS_URL,
             map_location="cpu",
         )
         model.model.load_state_dict(state_dict["model"])
