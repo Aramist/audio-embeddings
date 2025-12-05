@@ -1,7 +1,28 @@
 [project]
-name = "partitioning-embeddings"
+name = "embeddings"
 version = "0.0.1"
 description = "A package for generating embeddings from a large set of pretrained audio models for further experimentation."
 readme = "README.md"
+authors = [
+    { name = "Aramis Tanelus", email = "aramis.tanelus@nyu.edu" }
+]
 requires-python = ">=3.12"
-dependencies = ["torch", "torchaudio", 'librosa', 'numpy', 'tqdm', 'scipy', 'transformers', 'soundfile', 'torchlibrosa']
+dependencies = [
+    "torch",
+    "torchaudio",
+    'librosa',
+    'numpy',
+    'tqdm',
+    'scipy',
+    'transformers',
+    'soundfile',
+    'torchlibrosa',
+    "pytest>=9.0.1",
+]
+
+[project.scripts]
+embeddings = "embeddings:main"
+
+[build-system]
+requires = ["uv_build>=0.9.8,<0.10.0"]
+build-backend = "uv_build"

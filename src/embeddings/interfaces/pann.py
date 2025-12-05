@@ -221,6 +221,9 @@ class PannEmbedder(AudioEmbedder):
             classes_num=527,
         )
 
+        self.expected_sample_rate = 32000
+        self.embedding_dim = 2048
+
     @classmethod
     def from_pretrained(cls):
         """Download/load pretrained weights and return an instance
@@ -231,6 +234,26 @@ class PannEmbedder(AudioEmbedder):
             cls.weights_url,
             map_location="cpu",
         )
-        model.model.load_state_dict(state_dict)
+        model.model.load_state_dict(state_dict["model"])
         model.model.eval()
         return model
+
+    def embed(self, audio: torch.Tensor) -> torch.Tensor:
+        """Compute embeddings for a batch of audio samples.
+
+        Args:
+            audio (torch.Tensor): Tensor of shape (batch_size, 1, num_samples)
+
+        Returns:
+            torch.Tensor: Embeddings of shape (batch_size, embedding_dim)
+        """
+
+        if audio.shape[-2] != 1:
+            raise ValueError(
+                f"Expected audio to have one (1) channel but got {audio.shape[-2]}"
+            )
+
+        with torch.no_grad():
+            output_dict = self.model(audio.squeeze(-2))
+            embeddings = output_dict["embedding"]
+        return embeddings
