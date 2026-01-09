@@ -46,3 +46,12 @@ def test_PANN():
     embeddings = model(audio_with_sr)
 
     assert embeddings.shape == (5, 2048)
+
+
+def test_Wav2Vec2Base():
+    model = interfaces.Wav2Vec2Base.from_pretrained()
+    audio_with_sr = make_test_audio()
+
+    embeddings = model(audio_with_sr)
+
+    assert embeddings.shape == (5, model.embedding_dim)

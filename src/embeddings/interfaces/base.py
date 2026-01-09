@@ -47,14 +47,28 @@ class AudioEmbedder(torch.nn.Module):
         if self.expected_sample_rate is None:
             raise ValueError("expected_sample_rate must be defined by subclass.")
 
+        signal = audio[0]
+
         if audio[1] != self.expected_sample_rate:
             # resample audio
             resampled_audio = resample(
-                audio[0].numpy(), orig_sr=audio[1], target_sr=self.expected_sample_rate
+                signal.numpy(), orig_sr=audio[1], target_sr=self.expected_sample_rate
             )
             resampled_audio = (
-                torch.from_numpy(resampled_audio).to(audio[0].dtype).to(audio[0].device)
+                torch.from_numpy(resampled_audio).float().to(signal.device)
             )
-            return self.embed(resampled_audio)
+            signal = resampled_audio
         else:
-            return self.embed(audio[0])
+            signal = signal.float()
+
+        if signal.ndim == 2:
+            # Missing batch dimension
+            signal = signal.unsqueeze(0)
+        elif signal.ndim == 1:
+            # Missing batch and channel dimensions
+            signal = signal.unsqueeze(0).unsqueeze(0)
+        elif signal.ndim > 3:
+            raise ValueError(
+                "Input audio tensor must have shape (batch_size, num_channels, num_samples)."
+            )
+        return self.embed(signal)
