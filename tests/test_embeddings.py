@@ -8,7 +8,7 @@ import pytest
 import soundfile as sf
 import torch
 
-from embeddings import interfaces
+import audiomanifolds.embeddings
 
 TEST_AUDIO_PATH = Path(__file__).parent / "steelpan.wav"
 
@@ -37,7 +37,7 @@ def make_test_audio() -> tuple[torch.Tensor, float]:
 
 
 def test_PANN():
-    model = interfaces.PannEmbedder.from_pretrained()
+    model = audiomanifolds.embeddings.PannEmbedder.from_pretrained()
     audio_with_sr = make_test_audio()
 
     embeddings = model(audio_with_sr)
