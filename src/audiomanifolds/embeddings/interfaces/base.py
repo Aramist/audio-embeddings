@@ -35,10 +35,10 @@ class AudioEmbedder(torch.nn.Module):
         """Forward pass through the embedder.
 
         Args:
-            audio (tuple[torch.Tensor, float]): A tuple containing the input tensor of shape (batch_size, num_channels, num_samples)
+            audio (tuple[torch.Tensor, float]): A tuple containing the input tensor of shape (*batch_dims, num_channels, num_samples)
             and the sample rate as a float.
         Returns:
-            torch.Tensor: Output embeddings of shape (batch_size, embedding_dim).
+            torch.Tensor: Output embeddings of shape (batch_size, num_channels, embedding_dim).
         """
 
         if type(audio) != tuple or len(audio) != 2:
@@ -48,6 +48,7 @@ class AudioEmbedder(torch.nn.Module):
             raise ValueError("expected_sample_rate must be defined by subclass.")
 
         signal = audio[0]
+        batch_dims = ()
 
         if audio[1] != self.expected_sample_rate:
             # resample audio
@@ -68,7 +69,11 @@ class AudioEmbedder(torch.nn.Module):
             # Missing batch and channel dimensions
             signal = signal.unsqueeze(0).unsqueeze(0)
         elif signal.ndim > 3:
-            raise ValueError(
-                "Input audio tensor must have shape (batch_size, num_channels, num_samples)."
-            )
-        return self.embed(signal)
+            batch_dims = signal.shape[:-2]
+            signal = signal.reshape(-1, signal.shape[-2], signal.shape[-1])
+
+        embedding = self.embed(signal)
+        if batch_dims:
+            embedding = embedding.reshape(*batch_dims, *embedding.shape[1:])
+
+        return embedding
