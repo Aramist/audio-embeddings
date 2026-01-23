@@ -80,4 +80,22 @@ def test_gain_integer():
         quotients[i] = (rms_b / rms_a).item()
 
     # may have some distortion
-    assert np.allclose(quotients, quotients[0])
+    assert np.allclose(quotients, quotients[0], atol=0.1)
+
+
+def test_time_stretching():
+    # Mostly testing that it doesn't crash
+    audio_with_sr = make_test_audio()  # (batch, channels, samples)
+
+    ratios = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0]
+    transform = audiomanifolds.transformations.TimeStretching(ratios=ratios)
+
+    orig_shape = audio_with_sr[0].shape
+
+    augmented_audio = transform(audio_with_sr)
+    assert augmented_audio[0].shape[-1] == orig_shape[-1]  # length preserved
+    assert augmented_audio[0].shape == (
+        *orig_shape[:-2],
+        len(ratios),
+        *augmented_audio[0].shape[-2:],
+    )

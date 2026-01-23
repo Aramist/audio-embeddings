@@ -18,6 +18,15 @@ import audiomanifolds.transformations
 
 args_for_augs = {
     "gain": {"gains": np.linspace(-10, 10, 100, endpoint=True)},
+    "time_stretching": {
+        "ratios": np.exp(
+            np.linspace(
+                np.log(0.5),
+                np.log(2.0),
+                100,
+            )
+        )
+    },
 }
 
 
@@ -92,6 +101,8 @@ def run(audio_dir: Path, augmentation: str, clip_length: float | None = None):
 
     if augmentation == "gain":
         augment_module = audiomanifolds.transformations.Gain(**kwargs)
+    elif augmentation == "time_stretching":
+        augment_module = audiomanifolds.transformations.TimeStretching(**kwargs)
     else:
         raise ValueError(f"Unknown augmentation: {augmentation}")
 
@@ -156,7 +167,7 @@ def visualize_embeddings(embedding_file: Path):
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("audio_dir", type=Path)
-    ap.add_argument("augmentation", type=str, choices=["gain"])
+    ap.add_argument("augmentation", type=str, choices=["gain", "time_stretching"])
     ap.add_argument("--clip-length", type=float, default=1.0)
     args = ap.parse_args()
 
