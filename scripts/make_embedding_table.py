@@ -136,10 +136,13 @@ def visualize_embeddings(embedding_file: Path):
         embeddings: np.ndarray = hf["embeddings"][:]
     print("Loaded embeddings shape: ", embeddings.shape)
     num_samples, num_augs, embedding_dim = embeddings.shape
+    # Make each augmentation relative to the original audio
+    orig_audio_index = num_augs // 2
+    embeddings = embeddings - embeddings[:, orig_audio_index, :][:, None, :]
     embeddings = embeddings.reshape(num_samples * num_augs, embedding_dim)
 
-    scaler = StandardScaler()
-    embeddings = scaler.fit_transform(embeddings)
+    # scaler = StandardScaler()
+    # embeddings = scaler.fit_transform(embeddings)
 
     pca = PCA(n_components=2)
     embeddings_2d = pca.fit_transform(embeddings)
@@ -159,7 +162,7 @@ def visualize_embeddings(embedding_file: Path):
     cbar = fig.colorbar(
         plt.cm.ScalarMappable(cmap="RdBu"), ax=ax, orientation="vertical"
     )
-    aug_type = embedding_file.stem.split("_")[-1]
+    aug_type = "_".join(embedding_file.stem.split("_")[2:])
     cbar.set_label(f"{aug_type} strength")
     cbar.set_ticks([0, 0.5, 1])
     if aug_type == "gain":
@@ -167,6 +170,16 @@ def visualize_embeddings(embedding_file: Path):
         mid_gain = "0 dB"
         hi_gain = f'{args_for_augs["gain"]["gains"][-1]:.0f} dB'
         cbar.set_ticklabels([low_gain, mid_gain, hi_gain])
+    elif aug_type == "time_stretching":
+        low_ratio = f'{args_for_augs["time_stretching"]["ratios"][0]:.2f}x'
+        mid_ratio = "1.00x"
+        hi_ratio = f'{args_for_augs["time_stretching"]["ratios"][-1]:.2f}x'
+        cbar.set_ticklabels([low_ratio, mid_ratio, hi_ratio])
+    elif aug_type == "pitch_shifting":
+        low_steps = f'{args_for_augs["pitch_shifting"]["n_steps"][0]:.0f} st'
+        mid_steps = "0 st"
+        hi_steps = f'{args_for_augs["pitch_shifting"]["n_steps"][-1]:.0f} st'
+        cbar.set_ticklabels([low_steps, mid_steps, hi_steps])
     plt.show()
 
 
