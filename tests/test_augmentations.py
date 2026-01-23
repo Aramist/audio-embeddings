@@ -99,3 +99,20 @@ def test_time_stretching():
         len(ratios),
         *augmented_audio[0].shape[-2:],
     )
+
+
+def test_pitch_shifting():
+    # Mostly testing that it doesn't crash
+    audio_with_sr = make_test_audio()  # (batch, channels, samples)
+
+    n_steps = [-12, -9.25, -5, -2, 0, 2, 5, 11.5, 12]
+    transform = audiomanifolds.transformations.PitchShifting(n_steps=n_steps)
+
+    orig_shape = audio_with_sr[0].shape
+
+    augmented_audio = transform(audio_with_sr)
+    assert augmented_audio[0].shape == (
+        *orig_shape[:-2],
+        len(n_steps),
+        *orig_shape[-2:],
+    )

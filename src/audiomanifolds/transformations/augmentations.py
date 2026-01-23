@@ -1,6 +1,6 @@
 import numpy as np
 import torch
-from librosa.effects import time_stretch
+from librosa.effects import pitch_shift, time_stretch
 
 from .base import AudioTransformation
 
@@ -97,3 +97,42 @@ class TimeStretching(AudioTransformation):
         stretched_audios = np.stack(stretched_audios, axis=-3)
         stretched_audios = torch.from_numpy(stretched_audios).to(audio.device)
         return stretched_audios, sample_rate
+
+
+class PitchShifting(AudioTransformation):
+    """Applies pitch shifting to the input audio signal without affecting its duration."""
+
+    def __init__(self, n_steps: list[float] | np.ndarray | torch.Tensor):
+        """
+        Args:
+            n_steps (list[float] | np.ndarray | torch.Tensor): Number of steps to shift the pitch (in semitones).
+                Positive values increase pitch, negative values decrease pitch.
+        """
+
+        super(PitchShifting, self).__init__()
+        if not isinstance(n_steps, torch.Tensor):
+            n_steps = torch.tensor(n_steps)
+        self.n_steps = n_steps
+
+    def apply(self, audio: torch.Tensor, sample_rate: float):
+        """
+        Applies pitch shifting to the input waveform.
+
+        Args:
+            audio (torch.Tensor): The audio waveform tensor.
+                audio shape: (*batch_dim, num_channels, num_samples)
+            sample_rate (float): The sample rate of the audio waveform.
+        Returns:
+            tuple[torch.Tensor, float]: Transformed audio waveform tensor and its sample rate. Output audio will
+                have expanded shape: (*batch_dim, num_steps, num_channels, num_samples)
+        """
+
+        audio_np = audio.cpu().numpy()
+        shifted_audios = []
+        for n_step in self.n_steps:
+            shifted_audio = pitch_shift(audio_np, sr=sample_rate, n_steps=n_step.item())
+            shifted_audios.append(shifted_audio)
+
+        shifted_audios = np.stack(shifted_audios, axis=-3)
+        shifted_audios = torch.from_numpy(shifted_audios).to(audio.device)
+        return shifted_audios, sample_rate
