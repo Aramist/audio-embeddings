@@ -7,6 +7,7 @@ import h5py
 import librosa
 import matplotlib.pyplot as plt
 import numpy as np
+import scipy.linalg
 import soundfile as sf
 import torch
 from sklearn.decomposition import PCA
@@ -81,7 +82,12 @@ def convert_sr(
     return new_waveform, target_sr
 
 
-def run(audio_dir: Path, augmentation: str, clip_length: float | None = None):
+def run(
+    audio_dir: Path,
+    augmentation: str,
+    clip_length: float | None = None,
+    save_to: Path | None = None,
+):
     kwargs = args_for_augs[augmentation]
 
     loaded_audio = [
@@ -127,7 +133,9 @@ def run(audio_dir: Path, augmentation: str, clip_length: float | None = None):
     print(f"Embedding computation time: {end_time - start_time:.2f} seconds")
     # embeddings shape: (batch, num_augs, embedding_dim)
     print("Embeddings shape: ", embeddings.shape)
-    with h5py.File(f"embedding_table_{augmentation}.h5", "w") as hf:
+    if save_to is None:
+        save_to = Path("embeddings.h5")
+    with h5py.File(save_to, "w") as hf:
         hf.create_dataset("embeddings", data=embeddings.numpy())
 
 
@@ -138,14 +146,68 @@ def visualize_embeddings(embedding_file: Path):
     num_samples, num_augs, embedding_dim = embeddings.shape
     # Make each augmentation relative to the original audio
     orig_audio_index = num_augs // 2
+    orig_audio_embeddings = embeddings[:, orig_audio_index, :]  # (50, embedding_dim)
+    centroids = embeddings.mean(axis=1)
+
+    # Compute covariance matrices within each class (audio file)
+    # Target shape: (num_classes, num_features, num_features)
+    mean_centered = (
+        embeddings - centroids[:, None, :]
+    )  # (num_classes, num_augs, features)
+    cov = np.einsum("cai,cak->cik", mean_centered, mean_centered) / num_augs
+
+    within_class_cov = cov.mean(axis=0)
+    # shape: (features, features)
+
+    # shape: (num_classes, features)
+    mean_centered_centroids = orig_audio_embeddings - orig_audio_embeddings.mean(
+        axis=0, keepdims=True
+    )
+    # shape: (features, features)
+    across_class_cov = mean_centered_centroids.T @ mean_centered_centroids
+
+    reg = np.eye(2048) * 1e-4
+    generalized_eig, generalized_eigv = scipy.linalg.eigh(
+        a=within_class_cov + reg, b=across_class_cov + reg, driver="gv"
+    )
+    # generalized_eig, generalized_eigv = scipy.linalg.eigh(a=within_class_cov)
+
+    # Reverse them so largest come first
+    generalized_eigv = (generalized_eigv.T)[::-1]  # shape (num_eigv, dim)
+    generalized_eig = generalized_eig[::-1]
+
+    top_two_directions = generalized_eigv[:2]  # shape: (2, features)
+
     embeddings = embeddings - embeddings[:, orig_audio_index, :][:, None, :]
+    projected_embeddings = np.einsum(
+        "df,cbf->cbd", top_two_directions, embeddings
+    )  # (num_files, num_augs, features)
+
+    cumulative_eigenvalues = np.cumsum(generalized_eig)
+    cutoff_idx = np.flatnonzero(
+        (cumulative_eigenvalues / cumulative_eigenvalues[-1]) > 0.95
+    )[0]
+    print(cutoff_idx)
+    generalized_eig = generalized_eig[:cutoff_idx]
+    generalized_eigv = generalized_eigv[:cutoff_idx]
+    print(generalized_eig.shape, generalized_eigv.shape)
+
+    # fig, ax = plt.subplots()
+    # ax.plot(generalized_eig)
+    # ax.set_xlabel("Eigenvalue index")
+    # ax.set_ylabel("Eigenvalue")
+    # ax.set_yscale("log")
+    # plt.show()
+    # exit()
     embeddings = embeddings.reshape(num_samples * num_augs, embedding_dim)
+    projected_embeddings = projected_embeddings.reshape(num_samples * num_augs, 2)
 
     # scaler = StandardScaler()
     # embeddings = scaler.fit_transform(embeddings)
 
     pca = PCA(n_components=2)
-    embeddings_2d = pca.fit_transform(embeddings)
+    # embeddings_2d = pca.fit_transform(embeddings)
+    embeddings_2d = projected_embeddings
 
     colors = np.tile(np.linspace(0, 1, num_augs), num_samples)
 
@@ -188,9 +250,21 @@ if __name__ == "__main__":
     ap.add_argument("audio_dir", type=Path)
     ap.add_argument("augmentation", type=str, choices=list(args_for_augs.keys()))
     ap.add_argument("--clip-length", type=float, default=1.0)
+    ap.add_argument("-o", "--output-dir", type=Path, default=Path("."))
     args = ap.parse_args()
 
-    if not Path(f"embedding_table_{args.augmentation}.h5").exists():
-        run(args.audio_dir, args.augmentation, clip_length=args.clip_length)
+    dataset_name = args.audio_dir.stem
+    augmentation_name = args.augmentation
+    output_path = (
+        args.output_dir / f"embedding_table_{dataset_name}_{augmentation_name}.h5"
+    )
+    if not Path(output_path).exists():
+        args.output_dir.mkdir(parents=True, exist_ok=True)
+        run(
+            args.audio_dir,
+            args.augmentation,
+            clip_length=args.clip_length,
+            save_to=output_path,
+        )
 
-    visualize_embeddings(Path(f"embedding_table_{args.augmentation}.h5"))
+    visualize_embeddings(output_path)
