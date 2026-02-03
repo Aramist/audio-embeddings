@@ -25,13 +25,12 @@ All augmentation and embedding modules accept audio in the form of `(waveform, s
 import soundfile as sf
 import torch
 
-import audiomanifolds.embeddings
-import audiomanifolds.transformations
+from audiomanifolds import embeddings, transformations
 
 audio, sr = sf.read(AUDIO_PATH)  # (num_channels, num_samples)
 audio = torch.from_numpy(audio)
 
-gain_aug = audiomanifolds.transformations.Gain(
+gain_aug = transformations.Gain(
     gains=[-5, 5, 10],  # gain manipulations in dB
 )
 audio_with_gain = gain_aug((audio, sr))  # (num_augs=3, num_channels, num_samples)
@@ -39,7 +38,7 @@ audio_with_gain = gain_aug((audio, sr))  # (num_augs=3, num_channels, num_sample
 batched_audio = audio[None, ...].repeat(64, 1, 1)  # (64, num_channels, num_samples)
 batched_aug_audio = gain_aug((batched_audio, sr))  # (64, num_augs=3, num_channels, num_samples)
 
-pretrained_embedder = audiomanifolds.embeddings.PannEmbedder.from_pretrained()
+pretrained_embedder = embeddings.PannEmbedder.from_pretrained()
 
 embedded_audio = pretrained_embedder(batched_audio)  # (64, num_channels, embedding_size)
 ```
@@ -58,6 +57,17 @@ embedded_audio = pretrained_embedder(batched_audio)  # (64, num_channels, embedd
 
   * [Aramis Tanelus](https://github.com/Aramist)
 
+
+## Repository structure
+```
+scripts/                        Scripts demonstrating package functionality
+├─ make_embedding_table.py          Generate a table of embeddings for multiple augmentations of multiple audio examples
+tests/                          Tests verifying core package functionality
+src/                            Main implementation code
+├─ audiomanifolds/                  
+│  ├─ transformations                   Submodule containing audio augmentation functions
+│  ├─ embeddings                        Submodule containing wrappers around pretrained models
+```
 ## Version History
 
 * 0.0.1
