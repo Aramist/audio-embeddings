@@ -14,8 +14,7 @@ from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
 from tqdm import tqdm
 
-import audiomanifolds.embeddings
-import audiomanifolds.transformations
+from audiomanifolds import embeddings, transformations
 
 args_for_augs = {
     "gain": {"gains": np.linspace(-10, 10, 101, endpoint=True)},
@@ -32,9 +31,9 @@ args_for_augs = {
 }
 
 module_lookup = {
-    "gain": audiomanifolds.transformations.Gain,
-    "time_stretching": audiomanifolds.transformations.TimeStretching,
-    "pitch_shifting": audiomanifolds.transformations.PitchShifting,
+    "gain": transformations.Gain,
+    "time_stretching": transformations.TimeStretching,
+    "pitch_shifting": transformations.PitchShifting,
 }
 
 
@@ -110,7 +109,7 @@ def run(
         sr,
     )  # new shape: (batch, channels, clip_len)
 
-    augment_module: audiomanifolds.transformations.AudioTransformation
+    augment_module: transformations.AudioTransformation
 
     if augmentation not in module_lookup:
         raise ValueError(f"Unknown augmentation: {augmentation}")
@@ -122,38 +121,36 @@ def run(
     # augmented_audio shape: (batch, num_augs, channels, clip_len)
     print("Augmented audio: ", augmented_audio[0].shape)
 
-    embedding_module = audiomanifolds.embeddings.PannEmbedder.from_pretrained()
+    embedding_module = embeddings.PannEmbedder.from_pretrained()
     embedding_module.eval()
     start_time = time.time()
-    embeddings = []
+    emb = []
     for audio in tqdm(augmented_audio[0], desc="Computing embeddings"):
-        embeddings.append(embedding_module((audio, sr)))
-    embeddings = torch.stack(embeddings, dim=0)
+        emb.append(embedding_module((audio, sr)))
+    emb = torch.stack(emb, dim=0)
     end_time = time.time()
     print(f"Embedding computation time: {end_time - start_time:.2f} seconds")
     # embeddings shape: (batch, num_augs, embedding_dim)
-    print("Embeddings shape: ", embeddings.shape)
+    print("Embeddings shape: ", emb.shape)
     if save_to is None:
         save_to = Path("embeddings.h5")
     with h5py.File(save_to, "w") as hf:
-        hf.create_dataset("embeddings", data=embeddings.numpy())
+        hf.create_dataset("embeddings", data=emb.numpy())
 
 
 def visualize_embeddings(embedding_file: Path):
     with h5py.File(embedding_file, "r") as hf:
-        embeddings: np.ndarray = hf["embeddings"][:]
-    print("Loaded embeddings shape: ", embeddings.shape)
-    num_samples, num_augs, embedding_dim = embeddings.shape
+        emb: np.ndarray = hf["embeddings"][:]
+    print("Loaded embeddings shape: ", emb.shape)
+    num_samples, num_augs, embedding_dim = emb.shape
     # Make each augmentation relative to the original audio
     orig_audio_index = num_augs // 2
-    orig_audio_embeddings = embeddings[:, orig_audio_index, :]  # (50, embedding_dim)
-    centroids = embeddings.mean(axis=1)
+    orig_audio_embeddings = emb[:, orig_audio_index, :]  # (50, embedding_dim)
+    centroids = emb.mean(axis=1)
 
     # Compute covariance matrices within each class (audio file)
     # Target shape: (num_classes, num_features, num_features)
-    mean_centered = (
-        embeddings - centroids[:, None, :]
-    )  # (num_classes, num_augs, features)
+    mean_centered = emb - centroids[:, None, :]  # (num_classes, num_augs, features)
     cov = np.einsum("cai,cak->cik", mean_centered, mean_centered) / num_augs
 
     within_class_cov = cov.mean(axis=0)
@@ -178,9 +175,9 @@ def visualize_embeddings(embedding_file: Path):
 
     top_two_directions = generalized_eigv[:2]  # shape: (2, features)
 
-    embeddings = embeddings - embeddings[:, orig_audio_index, :][:, None, :]
+    emb = emb - emb[:, orig_audio_index, :][:, None, :]
     projected_embeddings = np.einsum(
-        "df,cbf->cbd", top_two_directions, embeddings
+        "df,cbf->cbd", top_two_directions, emb
     )  # (num_files, num_augs, features)
 
     cumulative_eigenvalues = np.cumsum(generalized_eig)
@@ -199,7 +196,7 @@ def visualize_embeddings(embedding_file: Path):
     # ax.set_yscale("log")
     # plt.show()
     # exit()
-    embeddings = embeddings.reshape(num_samples * num_augs, embedding_dim)
+    emb = emb.reshape(num_samples * num_augs, embedding_dim)
     projected_embeddings = projected_embeddings.reshape(num_samples * num_augs, 2)
 
     # scaler = StandardScaler()
