@@ -52,12 +52,13 @@ class AudioEmbedder(torch.nn.Module):
 
         if audio[1] != self.expected_sample_rate:
             # resample audio
+            orig_device = signal.device
             resampled_audio = resample(
-                signal.numpy(), orig_sr=audio[1], target_sr=self.expected_sample_rate
+                signal.cpu().numpy(),
+                orig_sr=audio[1],
+                target_sr=self.expected_sample_rate,
             )
-            resampled_audio = (
-                torch.from_numpy(resampled_audio).float().to(signal.device)
-            )
+            resampled_audio = torch.from_numpy(resampled_audio).float().to(orig_device)
             signal = resampled_audio
         else:
             signal = signal.float()
