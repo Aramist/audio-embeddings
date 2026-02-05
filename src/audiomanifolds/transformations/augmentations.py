@@ -1,6 +1,6 @@
 import numpy as np
+import pedalboard
 import torch
-from librosa.effects import pitch_shift, time_stretch
 
 from .base import AudioTransformation
 
@@ -79,10 +79,17 @@ class TimeStretching(AudioTransformation):
         """
 
         audio_np = audio.cpu().numpy()
+        orig_batch = audio_np.shape[:-1]
         orig_length = audio_np.shape[-1]
+        audio_np = audio_np.reshape(-1, orig_length)
         stretched_audios = []
         for ratio in self.ratios:
-            stretched_audio = time_stretch(audio_np, rate=ratio.item())
+            stretched_audio = pedalboard.time_stretch(
+                audio_np,
+                samplerate=sample_rate,
+                stretch_factor=ratio.item(),
+                high_quality=False,
+            )
             # Pad or truncate to original audio length
             new_len = stretched_audio.shape[-1]
             if new_len < orig_length:
@@ -92,9 +99,11 @@ class TimeStretching(AudioTransformation):
                 stretched_audio = np.pad(stretched_audio, padding, "constant")
             elif new_len > orig_length:
                 stretched_audio = stretched_audio[..., :orig_length]
-            stretched_audios.append(stretched_audio)
+            stretched_audios.append(stretched_audio.reshape(*orig_batch, orig_length))
 
-        stretched_audios = np.stack(stretched_audios, axis=-3)
+        stretched_audios = np.stack(
+            stretched_audios, axis=-3
+        )  # (batch, ratios, channels, samples)
         stretched_audios = torch.from_numpy(stretched_audios).to(audio.device)
         return stretched_audios, sample_rate
 
@@ -112,6 +121,9 @@ class PitchShifting(AudioTransformation):
         super(PitchShifting, self).__init__()
         if not isinstance(n_steps, torch.Tensor):
             n_steps = torch.tensor(n_steps)
+        self.shifters = [
+            pedalboard.PitchShift(semitones=n_step.item()) for n_step in n_steps
+        ]
         self.n_steps = n_steps
 
     def apply(self, audio: torch.Tensor, sample_rate: float):
@@ -128,10 +140,12 @@ class PitchShifting(AudioTransformation):
         """
 
         audio_np = audio.cpu().numpy()
+        orig_batch_shape = audio_np.shape[:-1]
+        audio_np = audio_np.reshape(-1, audio_np.shape[-1])
         shifted_audios = []
-        for n_step in self.n_steps:
-            shifted_audio = pitch_shift(audio_np, sr=sample_rate, n_steps=n_step.item())
-            shifted_audios.append(shifted_audio)
+        for shifter in self.shifters:
+            shifted_audio = shifter(audio_np, sample_rate)
+            shifted_audios.append(shifted_audio.reshape(*orig_batch_shape, -1))
 
         shifted_audios = np.stack(shifted_audios, axis=-3)
         shifted_audios = torch.from_numpy(shifted_audios).to(audio.device)
