@@ -1,6 +1,9 @@
 # Datasets:
 *.h5
 
+# personal scripts
+sync_to_torch.zsh
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

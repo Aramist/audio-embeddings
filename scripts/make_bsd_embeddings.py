@@ -1,0 +1,213 @@
+import argparse
+import os
+import typing as tp
+from pathlib import Path
+
+import h5py
+import librosa
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+import soundfile as sf
+import torch
+from torch.utils.data import DataLoader, Dataset
+from tqdm import tqdm
+
+from audiomanifolds import embeddings, transformations
+
+args_for_augs = {
+    "gain": {"gains": np.linspace(-10, 10, 101, endpoint=True)},
+    "time_stretching": {
+        "ratios": np.exp(
+            np.linspace(
+                np.log(0.5),
+                np.log(2.0),
+                101,
+            )
+        )
+    },
+    "pitch_shifting": {"n_steps": np.linspace(-12, 12, 101, endpoint=True)},
+}
+
+module_lookup = {
+    "gain": transformations.Gain,
+    "time_stretching": transformations.TimeStretching,
+    "pitch_shifting": transformations.PitchShifting,
+}
+
+
+class AudioDataset(Dataset):
+    def __init__(
+        self,
+        audio_paths: list[Path],
+        target_sr: float,
+        clip_length: float | None = None,
+        augmentation: tp.Callable | None = None,
+    ):
+        self.audio_paths = audio_paths
+        self.target_sr = target_sr
+        self.clip_length = clip_length
+        self.augmentation = augmentation
+
+    def __len__(self):
+        return len(self.audio_paths)
+
+    def __getitem__(self, idx: int) -> tuple[torch.Tensor, float]:
+        """Grabs audio sample and its sample rate
+
+        Args:
+            idx (int): Index of the audio sample to grab (within the audio_paths list)
+
+        Returns:
+            tuple[torch.Tensor, float]: Audio and sample rate
+        """
+        audio_path = self.audio_paths[idx]
+        audio, sr = sf.read(audio_path, always_2d=True)
+        audio = audio[:, 0]  # use only one channel
+        audio = audio[None, :]  # (channels, samples)
+        if abs(sr - self.target_sr) > 1e-3:
+            audio = librosa.resample(audio, orig_sr=sr, target_sr=self.target_sr)
+            sr = self.target_sr
+
+        if self.clip_length is not None:
+            clip_length_samples = int(sr * self.clip_length)
+            audio = audio[..., :clip_length_samples]
+
+        if audio.dtype in (np.int16, np.int32):
+            max_val = np.iinfo(audio.dtype).max
+            audio = audio.astype(np.float32) / max_val
+
+        audio_tensor = torch.from_numpy(audio).float()
+
+        if self.augmentation is not None:
+            audio_tensor, sr = self.augmentation((audio_tensor, sr))
+
+        return (audio_tensor, sr)
+
+
+def run(
+    audio_paths: list[Path],
+    augmentation: str,
+    save_to: Path,
+    *,
+    clip_length: float | None = None,
+):
+    kwargs = args_for_augs[augmentation]
+    if save_to is None:
+        raise ValueError("save_to path must be provided")
+
+    augment_module: transformations.AudioTransformation
+
+    if augmentation not in module_lookup:
+        raise ValueError(f"Unknown augmentation: {augmentation}")
+
+    augment_module_class = module_lookup[augmentation]
+    augment_module = augment_module_class(**kwargs)
+
+    embedding_module = embeddings.PannEmbedder.from_pretrained()
+    embedding_module.eval()
+    sr = embedding_module.expected_sample_rate
+    if sr is None:
+        raise ValueError("Failed to infer expected sample rate for embedder.")
+
+    if torch.cuda.is_available():
+        embedding_module = embedding_module.cuda()
+
+    dset = AudioDataset(
+        audio_paths,
+        target_sr=sr,
+        clip_length=clip_length,
+        augmentation=augment_module,
+    )
+    try:
+        num_avail_cpu = len(os.sched_getaffinity(0))
+    except AttributeError:
+        num_avail_cpu = os.cpu_count() or 1
+    num_workers = max(1, num_avail_cpu - 2)
+    dloader = DataLoader(
+        dset,
+        batch_size=1,
+        shuffle=False,
+        num_workers=num_workers,
+    )
+
+    with h5py.File(save_to, "w") as hf:
+        for n, data in tqdm(
+            enumerate(iter(dloader)),
+            total=len(dloader),
+            desc="Processing audio files",
+        ):
+            augmented_audio, sr = data
+            with torch.no_grad():
+                if torch.cuda.is_available():
+                    augmented_audio = augmented_audio.cuda()
+                # augmented_audio shape: num_augs, channels, clip_len
+
+                # embedding shape: (num_augs, num_channels, embedding_dim)
+                emb = embedding_module((augmented_audio, sr))
+
+            if "embedding" not in hf:
+                hf.create_dataset(
+                    "embedding", shape=(len(audio_paths), *emb.shape), dtype=np.float32
+                )
+            hf["embedding"][n] = emb.cpu().numpy()
+        audio_ids = [int(p.stem) for p in audio_paths]
+        hf.create_dataset("sound_id", data=np.array(audio_ids), dtype=np.int32)
+        for key, value in kwargs.items():
+            hf.create_dataset(
+                key, data=np.array(value)
+            )  # Store which augmentation params were used
+
+
+if __name__ == "__main__":
+    ap = argparse.ArgumentParser()
+    ap.add_argument(
+        "augmentation",
+        type=str,
+        help="Type of augmentation to apply",
+        choices=["gain", "time_stretching", "pitch_shifting"],
+    )
+    augmentation_name = ap.parse_args().augmentation
+    BSD_AUDIO_PATH = Path("/ext3/BSD10k_audio/")
+    BSD_METADATA_PATH = Path("/ext3/bsd_id_to_class_mapping.csv")
+    output_dir = Path("/scratch/at4219/")
+
+    print(f"Using CUDA: {torch.cuda.is_available()}")
+    # get lengths of all audio files to filter for longer clips
+    audio_paths = sorted(BSD_AUDIO_PATH.glob("*.wav"))
+    class_id_df = pd.read_csv(BSD_METADATA_PATH)
+    if "durations" not in class_id_df.columns:
+        durations = {}
+        for audio_path in tqdm(audio_paths, desc="Getting audio durations..."):
+            info = sf.info(audio_path)
+            sound_id = int(audio_path.stem)
+            durations[sound_id] = info.frames / info.samplerate
+        class_id_df["durations"] = class_id_df["sound_id"].map(durations)
+        class_id_df.to_csv(BSD_METADATA_PATH, index=False)
+    else:
+        durations = {
+            int(row["sound_id"]): row["durations"] for _, row in class_id_df.iterrows()
+        }
+    filtered_audio_paths = audio_paths
+    # filtered_audio_paths = list(
+    #     filter(lambda p: durations[int(p.stem)] >= 1.0, audio_paths)
+    # )
+
+    output_path = output_dir / f"BSD10k_PANN_{augmentation_name}.h5"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    run(
+        filtered_audio_paths,
+        augmentation_name,
+        save_to=output_path,
+        clip_length=10.0,
+    )
+
+    class_id_lookup = {
+        int(row["sound_id"]): int(row["class_idx"]) for _, row in class_id_df.iterrows()
+    }
+    # Append information about class id to the h5 file
+    with h5py.File(output_path, "a") as hf:
+        audio_ids = hf["sound_id"][:]
+        class_ids = np.array([class_id_lookup[int(audio_id)] for audio_id in audio_ids])
+        if "class_id" not in hf:
+            hf.create_dataset("class_id", data=class_ids)
