@@ -4,7 +4,6 @@ from pathlib import Path
 
 import librosa as lr
 import numpy as np
-import pytest
 import soundfile as sf
 import torch
 

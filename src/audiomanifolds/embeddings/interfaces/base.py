@@ -41,7 +41,7 @@ class AudioEmbedder(torch.nn.Module):
             torch.Tensor: Output embeddings of shape (batch_size, num_channels, embedding_dim).
         """
 
-        if type(audio) != tuple or len(audio) != 2:
+        if not isinstance(audio, tuple) or len(audio) != 2:
             raise ValueError("Input audio must be a tuple of (tensor, sample_rate).")
 
         if self.expected_sample_rate is None:

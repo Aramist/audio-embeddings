@@ -9,11 +9,10 @@ import numpy as np
 import pandas as pd
 import soundfile as sf
 import torch
-from torch.profiler import ProfilerActivity, profile, record_function
 from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
 
-from audiomanifolds import embeddings, transformations
+from audiomanifolds import transformations
 
 args_for_augs = {
     "gain": {"gains": np.linspace(-10, 10, 101, endpoint=True)},
