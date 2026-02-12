@@ -1,5 +1,7 @@
 import argparse
 import os
+import signal
+import sys
 import typing as tp
 from pathlib import Path
 
@@ -34,6 +36,25 @@ module_lookup = {
     "pitch_shifting": transformations.PitchShifting,
 }
 
+static_file: h5py.File | None = None
+
+
+def sigterm_handler(signal, frame):
+    """
+    Handles the SIGTERM signal by performing cleanup and exiting gracefully.
+    """
+    print("SIGTERM received. Performing graceful shutdown...")
+
+    if static_file is not None:
+        print("Closing HDF5 file...")
+        static_file.close()
+
+    print("Cleanup complete. Exiting.")
+    sys.exit(0)  # Exit the program with a status code
+
+
+signal.signal(signal.SIGTERM, sigterm_handler)
+
 
 class AudioDataset(Dataset):
     def __init__(
@@ -42,14 +63,16 @@ class AudioDataset(Dataset):
         target_sr: float,
         clip_length: float | None = None,
         augmentation: tp.Callable | None = None,
+        start_idx: int = 0,
     ):
         self.audio_paths = audio_paths
         self.target_sr = target_sr
         self.clip_length = clip_length
         self.augmentation = augmentation
+        self.start_idx = start_idx
 
     def __len__(self):
-        return len(self.audio_paths)
+        return len(self.audio_paths) - self.start_idx
 
     def __getitem__(self, idx: int) -> tuple[torch.Tensor, float]:
         """Grabs audio sample and its sample rate
@@ -60,7 +83,7 @@ class AudioDataset(Dataset):
         Returns:
             tuple[torch.Tensor, float]: Audio and sample rate
         """
-        audio_path = self.audio_paths[idx]
+        audio_path = self.audio_paths[idx + self.start_idx]
         audio, sr = sf.read(audio_path, always_2d=True)
         audio = audio[:, 0]  # use only one channel
         audio = audio[None, :]  # (channels, samples)
@@ -82,6 +105,43 @@ class AudioDataset(Dataset):
             audio_tensor, sr = self.augmentation((audio_tensor, sr))
 
         return (audio_tensor, sr)
+
+
+def find_start_idx(save_to: Path) -> int:
+    """Finds the first index for which an embedding does not exist.
+    Creates the h5 file if it does not exist and returns 0.
+
+    Args:
+        save_to (Path): Path to the h5 file where embeddings are being saved
+
+    Returns:
+        int: First index for which an embedding does not exist
+    """
+
+    if not save_to.exists():
+        with h5py.File(save_to, "w") as hf:
+            pass  # Create the file if it doesn't exist
+        return 0
+
+    try:
+        with h5py.File(save_to, "r") as hf:
+            pass
+    except:
+        # File is corrupted
+        save_to.unlink()
+        return 0
+
+    with h5py.File(save_to, "r") as hf:
+        if "embedding" not in hf:
+            return 0
+        existing_embeddings = hf["embedding"]
+        # h5py datasets zero-fill by defualt, locate the first all-zero embedding
+
+        start_idx = 0  # Possible for the for loop to never start
+        for start_idx, emb in enumerate(existing_embeddings):
+            if np.allclose(emb, 0):
+                break
+        return start_idx
 
 
 def run(
@@ -112,11 +172,16 @@ def run(
     if torch.cuda.is_available():
         embedding_module = embedding_module.cuda()
 
+    # See if we have been pre-empted
+    start_idx = find_start_idx(save_to)
+    print(f"Determined start index to be {start_idx}")
+
     dset = AudioDataset(
         audio_paths,
         target_sr=sr,
         clip_length=clip_length,
         augmentation=augment_module,
+        start_idx=start_idx,
     )
     try:
         num_avail_cpu = len(os.sched_getaffinity(0))
@@ -130,32 +195,40 @@ def run(
         num_workers=num_workers,
     )
 
-    with h5py.File(save_to, "w") as hf:
-        for n, data in tqdm(
-            enumerate(iter(dloader)),
-            total=len(dloader),
-            desc="Processing audio files",
-        ):
-            augmented_audio, sr = data
-            with torch.no_grad():
-                if torch.cuda.is_available():
-                    augmented_audio = augmented_audio.cuda()
-                # augmented_audio shape: num_augs, channels, clip_len
+    with h5py.File(save_to, "a") as hf:
+        global static_file
+        static_file = hf  # For signal handler access
+        try:
+            for n, data in tqdm(
+                enumerate(iter(dloader), start=start_idx),
+                total=len(dloader),
+                desc="Processing audio files",
+            ):
+                augmented_audio, sr = data
+                with torch.no_grad():
+                    if torch.cuda.is_available():
+                        augmented_audio = augmented_audio.cuda()
+                    # augmented_audio shape: num_augs, channels, clip_len
 
-                # embedding shape: (num_augs, num_channels, embedding_dim)
-                emb = embedding_module((augmented_audio, sr))
+                    # embedding shape: (1, num_augs, num_channels, embedding_dim)
+                    emb = embedding_module((augmented_audio, sr)).squeeze(0)
 
-            if "embedding" not in hf:
-                hf.create_dataset(
-                    "embedding", shape=(len(audio_paths), *emb.shape), dtype=np.float32
-                )
-            hf["embedding"][n] = emb.cpu().numpy()
+                if "embedding" not in hf:
+                    hf.create_dataset(
+                        "embedding",
+                        shape=(len(audio_paths), *emb.shape),
+                        dtype=np.float32,
+                    )
+                hf["embedding"][n] = emb.cpu().numpy()
+        except KeyboardInterrupt:
+            return
         audio_ids = [int(p.stem) for p in audio_paths]
-        hf.create_dataset("sound_id", data=np.array(audio_ids), dtype=np.int32)
-        for key, value in kwargs.items():
-            hf.create_dataset(
-                key, data=np.array(value)
-            )  # Store which augmentation params were used
+        if "sound_id" not in hf:
+            hf.create_dataset("sound_id", data=np.array(audio_ids), dtype=np.int32)
+            for key, value in kwargs.items():
+                hf.create_dataset(
+                    key, data=np.array(value)
+                )  # Store which augmentation params were used
 
 
 if __name__ == "__main__":
@@ -187,19 +260,16 @@ if __name__ == "__main__":
         durations = {
             int(row["sound_id"]): row["durations"] for _, row in class_id_df.iterrows()
         }
-    filtered_audio_paths = audio_paths
-    # filtered_audio_paths = list(
-    #     filter(lambda p: durations[int(p.stem)] >= 1.0, audio_paths)
-    # )
+
+    min_duration = 2.0  # seconds
+    max_duration = 10.0
+    audio_paths = list(
+        filter(lambda p: durations[int(p.stem)] >= min_duration, audio_paths)
+    )
 
     output_path = output_dir / f"BSD10k_PANN_{augmentation_name}.h5"
     output_dir.mkdir(parents=True, exist_ok=True)
-    run(
-        filtered_audio_paths,
-        augmentation_name,
-        save_to=output_path,
-        clip_length=10.0,
-    )
+    run(audio_paths, augmentation_name, save_to=output_path, clip_length=max_duration)
 
     class_id_lookup = {
         int(row["sound_id"]): int(row["class_idx"]) for _, row in class_id_df.iterrows()
