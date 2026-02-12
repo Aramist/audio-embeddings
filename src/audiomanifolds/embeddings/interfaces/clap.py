@@ -43,7 +43,7 @@ def _load_state_dict(checkpoint_path: Path, map_location="cpu", skip_params=True
 class CLAPAudioEmbedder(AudioEmbedder):
 
     def __init__(
-        self, quantize_input: bool = False, auto_convert_sample_rate: bool = False
+        self, quantize_input: bool = True, auto_convert_sample_rate: bool = False
     ):
         super().__init__(auto_convert_sample_rate=auto_convert_sample_rate)
 
