@@ -36,6 +36,11 @@ module_lookup = {
     "pitch_shifting": transformations.PitchShifting,
 }
 
+model_lookup = {
+    "PANN": embeddings.PannEmbedder,
+    "CLAP": embeddings.CLAPAudioEmbedder,
+}
+
 static_file: h5py.File | None = None
 
 
@@ -134,36 +139,36 @@ def find_start_idx(save_to: Path) -> int:
     with h5py.File(save_to, "r") as hf:
         if "embedding" not in hf:
             return 0
-        existing_embeddings = hf["embedding"]
-        # h5py datasets zero-fill by defualt, locate the first all-zero embedding
-
-        start_idx = 0  # Possible for the for loop to never start
-        for start_idx, emb in enumerate(existing_embeddings):
-            if np.allclose(emb, 0):
-                break
-        return start_idx
+        if "last_written_index" not in hf.attrs:
+            return 0
+        last_written_index = hf.attrs["last_written_index"]
+        return last_written_index + 1
 
 
 def run(
     audio_paths: list[Path],
-    augmentation: str,
+    augmentation_name: str,
+    model_name: str,
     save_to: Path,
     *,
     clip_length: float | None = None,
 ):
-    kwargs = args_for_augs[augmentation]
+    kwargs = args_for_augs[augmentation_name]
     if save_to is None:
         raise ValueError("save_to path must be provided")
 
     augment_module: transformations.AudioTransformation
 
-    if augmentation not in module_lookup:
-        raise ValueError(f"Unknown augmentation: {augmentation}")
+    if augmentation_name not in module_lookup:
+        raise ValueError(f"Unknown augmentation: {augmentation_name}")
 
-    augment_module_class = module_lookup[augmentation]
+    augment_module_class = module_lookup[augmentation_name]
     augment_module = augment_module_class(**kwargs)
 
-    embedding_module = embeddings.PannEmbedder.from_pretrained()
+    if model_name not in model_lookup:
+        raise ValueError(f"Unknown model: {model_name}")
+    embedding_module_class = model_lookup[model_name]
+    embedding_module = embedding_module_class.from_pretrained()
     embedding_module.eval()
     sr = embedding_module.expected_sample_rate
     if sr is None:
@@ -220,6 +225,9 @@ def run(
                         dtype=np.float32,
                     )
                 hf["embedding"][n] = emb.cpu().numpy()
+                hf.attrs["last_written_index"] = (
+                    n  # Store the last written index as an attribute for quick access
+                )
         except KeyboardInterrupt:
             return
         audio_ids = [int(p.stem) for p in audio_paths]
@@ -237,9 +245,18 @@ if __name__ == "__main__":
         "augmentation",
         type=str,
         help="Type of augmentation to apply",
-        choices=["gain", "time_stretching", "pitch_shifting"],
+        choices=list(args_for_augs.keys()),
     )
-    augmentation_name = ap.parse_args().augmentation
+    ap.add_argument(
+        "--model",
+        type=str,
+        default="PANN",
+        help="Which embedding model to use (default: PANN)",
+        choices=list(model_lookup.keys()),
+    )
+    args = ap.parse_args()
+    augmentation_name = args.augmentation
+    model_name = args.model
     BSD_AUDIO_PATH = Path("/ext3/BSD10k_audio/")
     BSD_METADATA_PATH = Path("/ext3/bsd_id_to_class_mapping.csv")
     output_dir = Path("/scratch/at4219/")
@@ -267,16 +284,28 @@ if __name__ == "__main__":
         filter(lambda p: durations[int(p.stem)] >= min_duration, audio_paths)
     )
 
-    output_path = output_dir / f"BSD10k_PANN_{augmentation_name}.h5"
+    output_path = output_dir / f"BSD10k_{model_name}_{augmentation_name}.h5"
     output_dir.mkdir(parents=True, exist_ok=True)
-    run(audio_paths, augmentation_name, save_to=output_path, clip_length=max_duration)
+    run(
+        audio_paths,
+        augmentation_name,
+        model_name,
+        save_to=output_path,
+        clip_length=max_duration,
+    )
 
     class_id_lookup = {
         int(row["sound_id"]): int(row["class_idx"]) for _, row in class_id_df.iterrows()
     }
     # Append information about class id to the h5 file
+    # Additionally, store information about the augmentation parameters used for reproducibility
     with h5py.File(output_path, "a") as hf:
         audio_ids = hf["sound_id"][:]
         class_ids = np.array([class_id_lookup[int(audio_id)] for audio_id in audio_ids])
         if "class_id" not in hf:
             hf.create_dataset("class_id", data=class_ids)
+        for key, value in args_for_augs[augmentation_name].items():
+            if key not in hf:
+                hf.create_dataset(
+                    f"{augmentation_name}_{key}", data=np.array(value)
+                )  # Store which augmentation params were used
