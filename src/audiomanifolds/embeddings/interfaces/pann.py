@@ -213,8 +213,8 @@ class PannEmbedder(AudioEmbedder):
         r"https://zenodo.org/record/3987831/files/Cnn14_mAP%3D0.431.pth?download=1"
     )
 
-    def __init__(self):
-        super().__init__()
+    def __init__(self, auto_convert_sample_rate: bool = False):
+        super().__init__(auto_convert_sample_rate=auto_convert_sample_rate)
         self.model = Cnn14(
             sample_rate=32000,
             window_size=1024,

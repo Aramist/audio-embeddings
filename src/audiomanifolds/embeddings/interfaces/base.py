@@ -18,8 +18,9 @@ class AudioEmbedder(torch.nn.Module):
             "Subclasses must implement from_pretrained initializer."
         )
 
-    def __init__(self):
+    def __init__(self, auto_convert_sample_rate: bool = False):
         super(AudioEmbedder, self).__init__()
+        self.auto_convert_sample_rate = auto_convert_sample_rate
 
     def embed(self, audio: torch.Tensor) -> torch.Tensor:
         """Compute embeddings for the given audio input.
@@ -51,6 +52,10 @@ class AudioEmbedder(torch.nn.Module):
         batch_dims = ()
 
         if audio[1] != self.expected_sample_rate:
+            if not self.auto_convert_sample_rate:
+                raise ValueError(
+                    f"Input sample rate {audio[1]} does not match expected sample rate {self.expected_sample_rate} and auto_convert_sample_rate is False."
+                )
             # resample audio
             orig_device = signal.device
             resampled_audio = resample(
@@ -73,7 +78,8 @@ class AudioEmbedder(torch.nn.Module):
             batch_dims = signal.shape[:-2]
             signal = signal.reshape(-1, signal.shape[-2], signal.shape[-1])
 
-        embedding = self.embed(signal)
+        with torch.no_grad():
+            embedding = self.embed(signal)
         if batch_dims:
             embedding = embedding.reshape(*batch_dims, *embedding.shape[1:])
 

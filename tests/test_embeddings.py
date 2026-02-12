@@ -7,12 +7,14 @@ import numpy as np
 import soundfile as sf
 import torch
 
-import audiomanifolds.embeddings
+from audiomanifolds.embeddings import CLAPAudioEmbedder, PannEmbedder
 
 TEST_AUDIO_PATH = Path(__file__).parent / "steelpan.wav"
 
 
-def make_test_audio() -> tuple[torch.Tensor, float]:
+def make_test_audio(
+    target_sample_rate: float | None = None,
+) -> tuple[torch.Tensor, float]:
     """Loads a 5-sec clip of a steelpan performance
     Source: https://www.youtube.com/watch?v=-3Kv4fdm7Uk (AudioSet)
 
@@ -22,6 +24,10 @@ def make_test_audio() -> tuple[torch.Tensor, float]:
     # note: SF reads audio as (samples, channels)
     audio, sr = sf.read(TEST_AUDIO_PATH)  # 5 seconds of music
     audio = audio.mean(axis=1)
+
+    if target_sample_rate is not None and abs(sr - target_sample_rate) > 1e-3:
+        audio = lr.resample(audio, orig_sr=sr, target_sr=target_sample_rate)
+        sr = target_sample_rate
 
     # Generate augmented versions of the audio for comparison
     aug_audio = np.stack(
@@ -36,9 +42,18 @@ def make_test_audio() -> tuple[torch.Tensor, float]:
 
 
 def test_PANN():
-    model = audiomanifolds.embeddings.PannEmbedder.from_pretrained()
-    audio_with_sr = make_test_audio()
+    model = PannEmbedder.from_pretrained()
+    audio_with_sr = make_test_audio(model.expected_sample_rate)
 
     embeddings = model(audio_with_sr)
 
     assert embeddings.shape == (5, 2048)
+
+
+def test_CLAP():
+    model = CLAPAudioEmbedder.from_pretrained()
+    audio_with_sr = make_test_audio(model.expected_sample_rate)
+
+    embeddings = model(audio_with_sr)
+
+    assert embeddings.cpu().numpy().shape == (5, 1, 512)
