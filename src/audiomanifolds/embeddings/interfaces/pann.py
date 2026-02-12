@@ -229,11 +229,11 @@ class PannEmbedder(AudioEmbedder):
         self.embedding_dim = 2048
 
     @classmethod
-    def from_pretrained(cls):
+    def from_pretrained(cls, auto_convert_sample_rate: bool = False) -> "PannEmbedder":
         """Download/load pretrained weights and return an instance
         of the embedder with those weights loaded.
         """
-        model = cls()
+        model = cls(auto_convert_sample_rate=auto_convert_sample_rate)
         state_dict = torch.hub.load_state_dict_from_url(
             cls.PRETRAINED_WEIGHTS_URL,
             map_location="cpu",

@@ -25,12 +25,13 @@ All augmentation and embedding modules accept audio in the form of `(waveform, s
 import soundfile as sf
 import torch
 
-from audiomanifolds import embeddings, transformations
+from audiomanifolds.embeddings import PannEmbedder
+from audiomanifolds.transformations import Gain
 
 audio, sr = sf.read(AUDIO_PATH)  # (num_channels, num_samples)
 audio = torch.from_numpy(audio)
 
-gain_aug = transformations.Gain(
+gain_aug = Gain(
     gains=[-5, 5, 10],  # gain manipulations in dB
 )
 audio_with_gain = gain_aug((audio, sr))  # (num_augs=3, num_channels, num_samples)
@@ -38,15 +39,16 @@ audio_with_gain = gain_aug((audio, sr))  # (num_augs=3, num_channels, num_sample
 batched_audio = audio[None, ...].repeat(64, 1, 1)  # (64, num_channels, num_samples)
 batched_aug_audio = gain_aug((batched_audio, sr))  # (64, num_augs=3, num_channels, num_samples)
 
-pretrained_embedder = embeddings.PannEmbedder.from_pretrained()
+pretrained_embedder = PannEmbedder.from_pretrained(auto_convert_sample_rate=True)
 
-embedded_audio = pretrained_embedder(batched_audio)  # (64, num_channels, embedding_size)
+embedded_audio = pretrained_embedder((batched_audio, sr))  # (64, num_channels, embedding_size)
 ```
 
 ### Implemented features
 
 #### Pretrained embeddings:
   - [PANN](https://arxiv.org/abs/1912.10211) (`audiomanifolds.embeddings.PannEmbedder`)
+  - [CLAP](https://arxiv.org/pdf/2211.06687) (`audiomanifolds.embeddings.CLAPAudioEmbedder`)
 
 #### Audio augmentations:
   - Pitch shifting (`audiomanifolds.transformations.PitchShifting`)
