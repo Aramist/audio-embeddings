@@ -143,3 +143,45 @@ class PitchShifting(AudioTransformation):
         shifted_audios = np.stack(shifted_audios, axis=1)
         shifted_audios = torch.from_numpy(shifted_audios).to(audio.device)
         return shifted_audios, sample_rate
+
+
+class LowPassFilter(AudioTransformation):
+    """Applies low pass filtering to the input signal"""
+
+    cutoff_frequencies: torch.Tensor
+
+    def __init__(self, cutoff_frequencies: list[float] | np.ndarray | torch.Tensor):
+        """
+        Args:
+            cutoff_frequencies (list[float] | np.ndarray | torch.Tensor): Cutoff frequencies for the low pass filter. (point at which attenuation is -3dB)
+        """
+
+        super(LowPassFilter, self).__init__()
+        if not isinstance(cutoff_frequencies, torch.Tensor):
+            cutoff_frequencies = torch.tensor(cutoff_frequencies)
+        self.cutoff_frequencies = cutoff_frequencies
+        self.filters = [
+            pedalboard.LowpassFilter(cutoff_frequency_hz=cutoff_freq.item())
+            for cutoff_freq in self.cutoff_frequencies
+        ]
+
+    def apply(self, audio: torch.Tensor, sample_rate: float):
+        """
+        Applies low pass filters to copies of the input waveform.
+
+        Args:
+            audio (torch.Tensor): The audio waveform tensor.
+                audio shape: (batch_size, num_samples)
+            sample_rate (float): The sample rate of the audio waveform.
+        Returns:
+            tuple[torch.Tensor, float]: Transformed audio waveform tensor and its sample rate. Output audio will
+                have expanded shape: (batch_size, num_filters, num_samples)
+        """
+
+        audio_np = audio.detach().cpu().numpy()
+        filtered_audios = np.stack(
+            [filt(audio_np, sample_rate).astype(np.float32) for filt in self.filters],
+            axis=1,
+        )
+
+        return torch.from_numpy(filtered_audios).to(audio.device), sample_rate

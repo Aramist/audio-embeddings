@@ -47,7 +47,7 @@ def test_PANN():
 
     embeddings = model(audio_with_sr)
 
-    assert embeddings.shape == (5, 2048)
+    assert embeddings.shape == (*audio_with_sr[0].shape[:-1], 2048)
 
 
 def test_CLAP():
@@ -56,4 +56,4 @@ def test_CLAP():
 
     embeddings = model(audio_with_sr)
 
-    assert embeddings.cpu().numpy().shape == (5, 1, 512)
+    assert embeddings.cpu().numpy().shape == (*audio_with_sr[0].shape[:-1], 512)

@@ -50,8 +50,8 @@ def test_gain_floatingpoint():
 
     quotients = np.zeros(len(gains) - 1)
     for i in range(len(gains) - 1):
-        rms_a = torch.sqrt(torch.mean(augmented_audio[0][..., i, :, :] ** 2))
-        rms_b = torch.sqrt(torch.mean(augmented_audio[0][..., i + 1, :, :] ** 2))
+        rms_a = torch.sqrt(torch.mean(augmented_audio[0][..., i, :] ** 2))
+        rms_b = torch.sqrt(torch.mean(augmented_audio[0][..., i + 1, :] ** 2))
         quotients[i] = (rms_b / rms_a).item()
 
     assert np.allclose(quotients, quotients[0])
@@ -73,9 +73,12 @@ def test_gain_integer():
     assert augmented_audio[0].shape == (*orig_shape[:-1], len(gains), orig_shape[-1])
 
     quotients = np.zeros(len(gains) - 1)
+    float_audio = (
+        augmented_audio[0].float() / 32767.0
+    )  # convert back to float for RMS calculation
     for i in range(len(gains) - 1):
-        rms_a = torch.sqrt((augmented_audio[0][..., i, :, :].float() ** 2).mean())
-        rms_b = torch.sqrt((augmented_audio[0][..., i + 1, :, :].float() ** 2).mean())
+        rms_a = torch.sqrt((float_audio[..., i, :] ** 2).mean())
+        rms_b = torch.sqrt((float_audio[..., i + 1, :] ** 2).mean())
         quotients[i] = (rms_b / rms_a).item()
 
     # may have some distortion
@@ -113,5 +116,21 @@ def test_pitch_shifting():
     assert augmented_audio[0].shape == (
         *orig_shape[:-1],
         len(n_steps),
+        orig_shape[-1],
+    )
+
+
+def test_lowpass_filter():
+    # Mostly testing that it doesn't crash and that shapes are correct.
+    audio_with_sr = make_test_audio()
+
+    cutoff_freqs = np.arange(1000, 15001, 1000)
+    transform = audiomanifolds.transformations.LowPassFilter(cutoff_freqs)
+    orig_shape = audio_with_sr[0].shape
+
+    augmented_audio = transform(audio_with_sr)
+    assert augmented_audio[0].shape == (
+        *orig_shape[:-1],
+        len(cutoff_freqs),
         orig_shape[-1],
     )
