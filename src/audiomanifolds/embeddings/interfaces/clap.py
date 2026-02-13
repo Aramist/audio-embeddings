@@ -120,7 +120,7 @@ class CLAPAudioEmbedder(AudioEmbedder):
                 temp_dict,
                 waveform,
                 480000,
-                data_truncating="fusion" if self.model.enbale_fusion else "rand_trunc",
+                data_truncating="fusion" if self.model.enable_fusion else "rand_trunc",
                 data_filling="repeatpad",
                 audio_cfg=self.model.model_cfg["audio_cfg"],
             )
