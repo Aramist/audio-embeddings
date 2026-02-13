@@ -102,12 +102,10 @@ class CLAPAudioEmbedder(AudioEmbedder):
         """Compute embeddings for the given audio input.
 
         Args:
-            audio (torch.Tensor): Input audio tensor of shape (batch_size, num_channels, num_samples).
+            audio (torch.Tensor): Input audio tensor of shape (batch_size, num_samples).
         Returns:
             torch.Tensor: Output embeddings of shape (batch_size, embedding_dim).
         """
-        batch_shape = audio.shape[:-1]
-        audio = audio.view(-1, audio.shape[-1])
         if self.quantize_input:
             int16_max = float(torch.iinfo(torch.int16).max)
             audio = (
@@ -126,5 +124,4 @@ class CLAPAudioEmbedder(AudioEmbedder):
             )
             audio_input.append(temp_dict)
         embeddings = self.model.model.get_audio_embedding(audio_input)
-        embeddings = embeddings.view(*batch_shape, self.embedding_dim)
         return embeddings

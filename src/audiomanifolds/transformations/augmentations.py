@@ -24,19 +24,19 @@ class Gain(AudioTransformation):
 
         Args:
             audio (torch.Tensor): The audio waveform tensor.
-                audio shape: (*batch_dim, num_channels, num_samples)
+                audio shape: (batch_size, num_samples)
             sample_rate (float): The sample rate of the audio waveform.
 
         Returns:
             tuple[torch.Tensor, float]: Transformed audio waveform tensor and its sample rate. Output audio will
-                have expanded shape: (*batch_dim, num_gains, num_channels, num_samples)
+                have expanded shape: (batch_size, num_gains, num_samples)
         """
         ratios = torch.pow(10.0, self.gains / 20.0).to(audio.device).float()
         # Do computations on floats and recast to original type.
         # Carefully handle clipping on integer types
         orig_type = audio.dtype
         audio = audio.float()
-        augmented_audio = torch.einsum("...cs,g->...gcs", audio, ratios)
+        augmented_audio = torch.einsum("bs,g->bgs", audio, ratios)
 
         if orig_type in (torch.int8, torch.int16, torch.int32, torch.int64):
             info = torch.iinfo(orig_type)
@@ -71,17 +71,15 @@ class TimeStretching(AudioTransformation):
 
         Args:
             audio (torch.Tensor): The audio waveform tensor.
-                audio shape: (*batch_dim, num_channels, num_samples)
+                audio shape: (batch_size, num_samples)
             sample_rate (float): The sample rate of the audio waveform.
         Returns:
             tuple[torch.Tensor, float]: Transformed audio waveform tensor and its sample rate. Output audio will
-                have expanded shape: (*batch_dim, num_ratios, num_channels, new_num_samples)
+                have expanded shape: (batch_size, num_ratios, num_samples)
         """
 
         audio_np = audio.cpu().numpy()
-        orig_batch = audio_np.shape[:-1]
-        orig_length = audio_np.shape[-1]
-        audio_np = audio_np.reshape(-1, orig_length)
+        _, orig_length = audio_np.shape
         stretched_audios = []
         for ratio in self.ratios:
             stretched_audio = pedalboard.time_stretch(
@@ -99,11 +97,11 @@ class TimeStretching(AudioTransformation):
                 stretched_audio = np.pad(stretched_audio, padding, "constant")
             elif new_len > orig_length:
                 stretched_audio = stretched_audio[..., :orig_length]
-            stretched_audios.append(stretched_audio.reshape(*orig_batch, orig_length))
+            stretched_audios.append(stretched_audio)
 
         stretched_audios = np.stack(
-            stretched_audios, axis=-3
-        )  # (batch, ratios, channels, samples)
+            stretched_audios, axis=1
+        )  # (batch, ratios, samples)
         stretched_audios = torch.from_numpy(stretched_audios).to(audio.device)
         return stretched_audios, sample_rate
 
@@ -132,21 +130,16 @@ class PitchShifting(AudioTransformation):
 
         Args:
             audio (torch.Tensor): The audio waveform tensor.
-                audio shape: (*batch_dim, num_channels, num_samples)
+                audio shape: (batch_size, num_samples)
             sample_rate (float): The sample rate of the audio waveform.
         Returns:
             tuple[torch.Tensor, float]: Transformed audio waveform tensor and its sample rate. Output audio will
-                have expanded shape: (*batch_dim, num_steps, num_channels, num_samples)
+                have expanded shape: (batch_size, num_steps, num_samples)
         """
 
         audio_np = audio.cpu().numpy()
-        orig_batch_shape = audio_np.shape[:-1]
-        audio_np = audio_np.reshape(-1, audio_np.shape[-1])
-        shifted_audios = []
-        for shifter in self.shifters:
-            shifted_audio = shifter(audio_np, sample_rate)
-            shifted_audios.append(shifted_audio.reshape(*orig_batch_shape, -1))
+        shifted_audios = [shifter(audio_np, sample_rate) for shifter in self.shifters]
 
-        shifted_audios = np.stack(shifted_audios, axis=-3)
+        shifted_audios = np.stack(shifted_audios, axis=1)
         shifted_audios = torch.from_numpy(shifted_audios).to(audio.device)
         return shifted_audios, sample_rate

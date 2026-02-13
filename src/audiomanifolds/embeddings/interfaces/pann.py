@@ -246,18 +246,13 @@ class PannEmbedder(AudioEmbedder):
         """Compute embeddings for a batch of audio samples.
 
         Args:
-            audio (torch.Tensor): Tensor of shape (batch_size, 1, num_samples)
+            audio (torch.Tensor): Tensor of shape (batch_size, num_samples)
 
         Returns:
             torch.Tensor: Embeddings of shape (batch_size, embedding_dim)
         """
 
-        if audio.shape[-2] != 1:
-            raise ValueError(
-                f"Expected audio to have one (1) channel but got {audio.shape[-2]}"
-            )
-
         with torch.no_grad():
-            output_dict = self.model(audio.squeeze(-2))
+            output_dict = self.model(audio)
             embeddings = output_dict["embedding"]
         return embeddings

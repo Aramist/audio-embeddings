@@ -17,13 +17,13 @@ class AudioTransformation(nn.Module):
         Apply the transformation to the input waveform.
 
         Args:
-            audio (torch.Tensor): The audio waveform tensor.
-                audio shape: (*batch_dim, num_channels, num_samples)
+            audio (torch.Tensor): The 2D audio waveform tensor.
+                audio shape: (batch_size, num_samples)
             sample_rate (float): The sample rate of the audio waveform.
 
         Returns:
             tuple[torch.Tensor, float]: Transformed audio waveform tensor and its sample rate. Output audio will
-                have expanded shape: (*batch_dim, augmentation_dim, num_channels, num_samples)
+                have expanded shape: (batch_size, augmentation_dim, num_samples)
         """
         raise NotImplementedError("Subclasses must implement this method.")
 
@@ -33,20 +33,21 @@ class AudioTransformation(nn.Module):
 
         Args:
             audio (tuple[torch.Tensor, float]): A tuple containing the audio waveform tensor and its sample rate.
-                audio shape: (*batch_dim, num_channels, num_samples)
+                audio shape: (*batch_dims, num_samples)
         Returns:
             tuple[torch.Tensor, float]: Transformed audio waveform tensor and its sample rate. Output audio will
-                have expanded shape: (*batch_dim, augmentation_dim, num_channels, num_samples)
+                have expanded shape: (*batch_dims, augmentation_dim, num_samples)
         """
-        if len(audio) != 2:
-            raise ValueError("Input must be a tuple of (audio_tensor, sample_rate).")
-        if audio[0].ndim == 2:
-            # Missing batch dimension
-            audio = (audio[0].unsqueeze(0), audio[1])  # Add batch dimension
-        elif audio[0].ndim == 1:
-            # Missing batch and channel dimensions
-            audio = (
-                audio[0].unsqueeze(0).unsqueeze(0),
-                audio[1],
-            )  # Add batch and channel dimensions
-        return self.apply(*audio)
+        if not isinstance(audio, tuple) or len(audio) != 2:
+            raise ValueError("Input must be a tuple of (tensor, sample_rate).")
+
+        batch_dims = audio[0].shape[:-1]
+        audio = (
+            audio[0].reshape(-1, audio[0].shape[-1]),
+            audio[1],
+        )  # Reshape to (batch_size, num_samples)
+        aug_audio, sr = self.apply(
+            *audio
+        )  # (batch_size, augmentation_dim, num_samples), sample_rate
+        aug_audio = aug_audio.reshape(*batch_dims, *aug_audio.shape[1:])
+        return aug_audio, sr

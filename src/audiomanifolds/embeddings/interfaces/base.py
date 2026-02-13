@@ -26,7 +26,7 @@ class AudioEmbedder(torch.nn.Module):
         """Compute embeddings for the given audio input.
 
         Args:
-            audio (torch.Tensor): Input audio tensor of shape (batch_size, num_channels, num_samples).
+            audio (torch.Tensor): 2D input audio tensor of shape (batch_size, num_samples).
         Returns:
             torch.Tensor: Output embeddings of shape (batch_size, embedding_dim).
         """
@@ -36,10 +36,10 @@ class AudioEmbedder(torch.nn.Module):
         """Forward pass through the embedder.
 
         Args:
-            audio (tuple[torch.Tensor, float]): A tuple containing the input tensor of shape (*batch_dims, num_channels, num_samples)
+            audio (tuple[torch.Tensor, float]): A tuple containing the input tensor of shape (*batch_dims, num_samples)
             and the sample rate as a float.
         Returns:
-            torch.Tensor: Output embeddings of shape (batch_size, num_channels, embedding_dim).
+            torch.Tensor: Output embeddings of shape (*batch_dims, embedding_dim).
         """
 
         if not isinstance(audio, tuple) or len(audio) != 2:
@@ -50,6 +50,12 @@ class AudioEmbedder(torch.nn.Module):
 
         signal = audio[0]
         batch_dims = ()
+        if signal.ndim == 1:
+            # Missing batch dimensions
+            signal = signal.unsqueeze(0)
+        elif signal.ndim > 2:
+            batch_dims = signal.shape[:-1]
+            signal = signal.reshape(-1, signal.shape[-1])
 
         if audio[1] != self.expected_sample_rate:
             if not self.auto_convert_sample_rate:
@@ -68,19 +74,8 @@ class AudioEmbedder(torch.nn.Module):
         else:
             signal = signal.float()
 
-        if signal.ndim == 2:
-            # Missing batch dimension
-            signal = signal.unsqueeze(0)
-        elif signal.ndim == 1:
-            # Missing batch and channel dimensions
-            signal = signal.unsqueeze(0).unsqueeze(0)
-        elif signal.ndim > 3:
-            batch_dims = signal.shape[:-2]
-            signal = signal.reshape(-1, signal.shape[-2], signal.shape[-1])
-
         with torch.no_grad():
             embedding = self.embed(signal)
-        if batch_dims:
-            embedding = embedding.reshape(*batch_dims, *embedding.shape[1:])
+        embedding = embedding.reshape(*batch_dims, embedding.shape[-1])
 
         return embedding
