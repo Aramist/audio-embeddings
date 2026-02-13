@@ -6,7 +6,7 @@ This tool exists to generate large tables of embeddings of audio waveforms that 
 
 ### Installing
 
-Note: requires installing `laion_clap>=1.1.6` which contains important bug fixes, but is only available through [github](https://github.com/Aramist/CLAP/tree/main).
+Note: requires installing `laion_clap>=1.1.6` which contains important bug fixes, but is unavailable through PYPI. [This fork](https://github.com/Aramist/CLAP/tree/main) provides a version which accepts `numpy>=2.0.0` and is therefore compatible with this repository.
 
 Installation via [uv](https://github.com/astral-sh/uv):
 ```shell
