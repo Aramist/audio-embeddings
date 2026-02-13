@@ -317,9 +317,9 @@ if aug_type == "gain":
     hi_gain = f"{args_for_augs['gain']['gains'][-1]:.0f} dB"
     cbar.set_ticklabels([low_gain, mid_gain, hi_gain])
 elif aug_type == "time_stretching":
-    low_ratio = f"{args_for_augs['time_stretching']['ratios'][0]:.2f}x"
+    low_ratio = f"{args_for_augs['time_stretching']['ratios'][0]:.2f}x (slow)"
     mid_ratio = "1.00x"
-    hi_ratio = f"{args_for_augs['time_stretching']['ratios'][-1]:.2f}x"
+    hi_ratio = f"{args_for_augs['time_stretching']['ratios'][-1]:.2f}x (fast)"
     cbar.set_ticklabels([low_ratio, mid_ratio, hi_ratio])
 elif aug_type == "pitch_shifting":
     low_steps = f"{args_for_augs['pitch_shifting']['n_steps'][0]:.0f} st"
