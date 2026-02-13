@@ -46,7 +46,7 @@ def test_gain_floatingpoint():
 
     augmented_audio = transform(audio_with_sr)
 
-    assert augmented_audio[0].shape == (*orig_shape[:-2], len(gains), *orig_shape[-2:])
+    assert augmented_audio[0].shape == (*orig_shape[:-1], len(gains), orig_shape[-1])
 
     quotients = np.zeros(len(gains) - 1)
     for i in range(len(gains) - 1):
@@ -70,7 +70,7 @@ def test_gain_integer():
 
     augmented_audio = transform(audio_with_sr)
 
-    assert augmented_audio[0].shape == (*orig_shape[:-2], len(gains), *orig_shape[-2:])
+    assert augmented_audio[0].shape == (*orig_shape[:-1], len(gains), orig_shape[-1])
 
     quotients = np.zeros(len(gains) - 1)
     for i in range(len(gains) - 1):
@@ -94,9 +94,9 @@ def test_time_stretching():
     augmented_audio = transform(audio_with_sr)
     assert augmented_audio[0].shape[-1] == orig_shape[-1]  # length preserved
     assert augmented_audio[0].shape == (
-        *orig_shape[:-2],
+        *orig_shape[:-1],
         len(ratios),
-        *augmented_audio[0].shape[-2:],
+        augmented_audio[0].shape[-1],
     )
 
 
@@ -111,7 +111,7 @@ def test_pitch_shifting():
 
     augmented_audio = transform(audio_with_sr)
     assert augmented_audio[0].shape == (
-        *orig_shape[:-2],
+        *orig_shape[:-1],
         len(n_steps),
-        *orig_shape[-2:],
+        orig_shape[-1],
     )
