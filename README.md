@@ -6,6 +6,8 @@ This tool exists to generate large tables of embeddings of audio waveforms that 
 
 ### Installing
 
+Note: requires installing `laion_clap>=1.1.6` which contains important bug fixes, but is only available through [github](https://github.com/Aramist/CLAP/tree/main).
+
 Installation via [uv](https://github.com/astral-sh/uv):
 ```shell
 git clone https://github.com/Aramist/audio-embeddings.git && cd audio-embeddings
