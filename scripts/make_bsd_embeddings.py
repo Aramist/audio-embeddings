@@ -1,4 +1,5 @@
 import argparse
+import json
 import os
 import signal
 import sys
@@ -28,12 +29,18 @@ args_for_augs = {
         )
     },
     "pitch_shifting": {"n_steps": np.linspace(-12, 12, 101, endpoint=True)},
+    "low_pass_filter": {
+        "cutoff_frequencies": np.linspace(1000, 16000, 101, endpoint=True)[
+            ::-1
+        ]  # Reversed so the less-impactful augmentations come first
+    },
 }
 
 module_lookup = {
     "gain": transformations.Gain,
     "time_stretching": transformations.TimeStretching,
     "pitch_shifting": transformations.PitchShifting,
+    "low_pass_filter": transformations.LowPassFilter,
 }
 
 model_lookup = {
@@ -59,6 +66,24 @@ def sigterm_handler(signal, frame):
 
 
 signal.signal(signal.SIGTERM, sigterm_handler)
+
+
+def convert_list_to_numpy(data: dict) -> None:
+    """Recursively converts lists in a dictionary to numpy arrays. Modifies the dictionary in place."""
+    for key, value in data.items():
+        if isinstance(value, list):
+            data[key] = np.array(value)
+        elif isinstance(value, dict):
+            convert_list_to_numpy(value)
+
+
+def convert_numpy_to_list(data: dict) -> None:
+    """Recursively converts numpy arrays in a dictionary to lists. Modifies the dictionary in place."""
+    for key, value in data.items():
+        if isinstance(value, np.ndarray):
+            data[key] = value.tolist()
+        elif isinstance(value, dict):
+            convert_numpy_to_list(value)
 
 
 class AudioDataset(Dataset):
@@ -254,9 +279,24 @@ if __name__ == "__main__":
         help="Which embedding model to use (default: PANN)",
         choices=list(model_lookup.keys()),
     )
+    ap.add_argument(
+        "--config",
+        type=Path,
+        help="Augmentation params to use",
+    )
     args = ap.parse_args()
     augmentation_name = args.augmentation
     model_name = args.model
+    cfg_name: str | None = None
+    if args.config is not None:
+        with open(args.config, "r") as f:
+            cfg = json.load(f)
+        convert_list_to_numpy(cfg)
+        args_for_augs.update(cfg)
+        print(
+            f"Using augmentation parameters from {args.config}: {args_for_augs[augmentation_name]}"
+        )
+        cfg_name = args.config.stem
     BSD_AUDIO_PATH = Path("/ext3/BSD10k_audio/")
     BSD_METADATA_PATH = Path("/ext3/bsd_id_to_class_mapping.csv")
     output_dir = Path("/scratch/at4219/")
@@ -284,7 +324,10 @@ if __name__ == "__main__":
         filter(lambda p: durations[int(p.stem)] >= min_duration, audio_paths)
     )
 
-    output_path = output_dir / f"BSD10k_{model_name}_{augmentation_name}.h5"
+    output_path = (
+        output_dir
+        / f"BSD10k_{model_name}_{augmentation_name}{'_' + cfg_name if cfg_name else ''}.h5"
+    )
     output_dir.mkdir(parents=True, exist_ok=True)
     run(
         audio_paths,

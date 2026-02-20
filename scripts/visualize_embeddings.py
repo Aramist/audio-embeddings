@@ -47,6 +47,13 @@ ap.add_argument(
     help="High-level classes to include in visualization. To use all, do not include this argument or set to empty string. To use multiple, separate by commas, e.g., 'm,is,sp'.",
     default="",
 )
+ap.add_argument(
+    "--model",
+    type=str,
+    choices=["PANN", "CLAP"],
+    default="PANN",
+    help="Which model's embeddings to visualize.",
+)
 args = ap.parse_args()
 # When true: class means are used to compute scatter matrices
 # When false: the embedding of the unaugmented audio is used as the class mean
@@ -54,6 +61,7 @@ USE_CLASS_MEANS = args.use_class_means
 AUG = args.aug
 CENTER_PROJECTION = args.center_projection
 CLASS_FILTER = args.class_filter
+MODEL = args.model
 if CLASS_FILTER:
     # Sort for consistency
     CLASS_FILTER = ",".join(sorted(CLASS_FILTER.split(",")))
@@ -85,25 +93,25 @@ class_id_mapping = {
     "ss-s": 22,
 }
 
-if Path(f"/home/at4219/scratch/BSD10k_PANN_{AUG}.h5").exists():
-    embedding_file = Path(f"/home/at4219/scratch/BSD10k_PANN_{AUG}.h5")
+if Path(f"/home/at4219/scratch/BSD10k_{MODEL}_{AUG}.h5").exists():
+    embedding_file = Path(f"/home/at4219/scratch/BSD10k_{MODEL}_{AUG}.h5")
 else:
     embedding_file = Path(
-        f"/Users/aramis/Heap/computed_embeddings/BSD10k_PANN_{AUG}.h5"
+        f"/Users/aramis/Heap/computed_embeddings/BSD10k_{MODEL}_{AUG}.h5"
     )
 # See which system we're on
 if Path("/home/at4219/scratch/").exists():
     data_dir = Path(
-        f"/home/at4219/scratch/covs/{AUG}_{'class_mean' if USE_CLASS_MEANS else 'orig_emb'}{'' if not CLASS_FILTER else '_' + CLASS_FILTER}"
+        f"/home/at4219/scratch/covs/{MODEL}_{AUG}_{'class_mean' if USE_CLASS_MEANS else 'orig_emb'}{'' if not CLASS_FILTER else '_' + CLASS_FILTER}"
     )
 else:
     data_dir = Path(
-        f"/Users/aramis/covs/{AUG}_{'class_mean' if USE_CLASS_MEANS else 'orig_emb'}{'' if not CLASS_FILTER else '_' + CLASS_FILTER}"
+        f"/Users/aramis/covs/{MODEL}_{AUG}_{'class_mean' if USE_CLASS_MEANS else 'orig_emb'}{'' if not CLASS_FILTER else '_' + CLASS_FILTER}"
     )
 
 plot_dir = (
     Path("/Users/aramis/Desktop/marl_keynotes/2026-02-11_figs")
-    / f"{AUG}{'' if not CLASS_FILTER else '_' + CLASS_FILTER}"
+    / f"{MODEL}_{AUG}{'' if not CLASS_FILTER else '_' + CLASS_FILTER}"
 )
 
 data_dir.mkdir(parents=True, exist_ok=True)
@@ -300,9 +308,7 @@ ax.scatter(
 # ymin, ymax = ymed + 1.2 * (ymin - ymed), ymed + 1.2 * (ymax - ymed)
 # ax.set_xlim(xmin, xmax)
 # ax.set_ylim(ymin, ymax)
-ax.set_title(
-    f"Embeddings: {AUG}, rel. {'class means' if USE_CLASS_MEANS else 'orig emb'}"
-)
+ax.set_title(f"Generalized eigenvalue projection: {AUG}, {MODEL}")
 ax.set_xlabel("Generalized Eigenvector 2")
 ax.set_ylabel("Generalized Eigenvector 3")
 ax.grid(True)

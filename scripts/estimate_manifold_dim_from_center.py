@@ -40,6 +40,7 @@ AUG = args.aug
 min_dist_from_center = 6  # Minimum number of augmentations from the center to consider for dimension estimation
 ESTIMATOR_CLS = skdim.id.ESS
 ESTIMATOR_NAME = ESTIMATOR_CLS.__name__
+USE_POINTWISE_ESTIMATE = False
 
 if Path(f"/home/at4219/scratch/BSD10k_PANN_{AUG}.h5").exists():
     embedding_file = Path(f"/home/at4219/scratch/BSD10k_PANN_{AUG}.h5")
@@ -77,7 +78,12 @@ def job(aug_subset):
     # of the manifold for each sample and returns an array of shape (num_samples,)
     output = np.zeros(aug_subset.shape[0], dtype=np.float64)
     for j, sample in enumerate(aug_subset):
-        intrinsic_dim = ESTIMATOR_CLS().fit(sample).dimension_
+        if USE_POINTWISE_ESTIMATE:
+            intrinsic_dim = np.mean(
+                ESTIMATOR_CLS().fit_pw(sample, n_neighbors=3).dimension_pw_
+            )
+        else:
+            intrinsic_dim = ESTIMATOR_CLS().fit(sample).dimension_
         output[j] = intrinsic_dim
     return output
 
