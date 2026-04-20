@@ -1,9 +1,11 @@
 """Loads sample audio and ensures each audio transformation method works"""
 
+from itertools import product
 from pathlib import Path
 
 import librosa as lr
 import numpy as np
+import sounddevice
 import soundfile as sf
 import torch
 
@@ -23,21 +25,21 @@ def make_test_audio() -> tuple[torch.Tensor, float]:
     audio, sr = sf.read(TEST_AUDIO_PATH)  # 5 seconds of music
     audio = audio.mean(axis=1)
 
-    # Generate augmented versions of the audio for comparison
-    aug_audio = np.stack(
-        [audio]
-        + [lr.effects.pitch_shift(audio, sr=sr, n_steps=i) for i in range(1, 5)],
-        axis=0,
-    )
-    aug_audio = aug_audio[:, None, :]  # (batch, channel, samples)
-    aug_audio = torch.from_numpy(aug_audio).float()
-    audio_with_sr = (aug_audio, sr)
+    audio = torch.from_numpy(audio[None, :]).float()
+    audio_with_sr = (audio, sr)
     return audio_with_sr
+
+
+def play_audio(audio_with_sr: tuple[torch.Tensor, float]):
+    audio = audio_with_sr[0].numpy()
+    bsz, n_augs = audio.shape[:2]
+    for b, a in product(range(bsz), range(n_augs)):
+        print(f"Playing augmentation {a} of batch item {b}")
+        sounddevice.play(audio[b, a], samplerate=audio_with_sr[1], blocking=True)
 
 
 def test_gain_floatingpoint():
     audio_with_sr = make_test_audio()  # (batch, channels, samples)
-    print(audio_with_sr[0].min(), audio_with_sr[0].max())
 
     gains = np.linspace(-10, 10, 11, endpoint=True)
     transform = audiomanifolds.transformations.Gain(gains=gains)
@@ -55,6 +57,9 @@ def test_gain_floatingpoint():
         quotients[i] = (rms_b / rms_a).item()
 
     assert np.allclose(quotients, quotients[0])
+    if __name__ == "__main__":
+        # Do not play audio during pytest
+        play_audio(augmented_audio)
 
 
 def test_gain_integer():
@@ -83,6 +88,9 @@ def test_gain_integer():
 
     # may have some distortion
     assert np.allclose(quotients, quotients[0], atol=0.1)
+    if __name__ == "__main__":
+        # Do not play audio during pytest
+        play_audio(augmented_audio)
 
 
 def test_time_stretching():
@@ -102,6 +110,10 @@ def test_time_stretching():
         augmented_audio[0].shape[-1],
     )
 
+    if __name__ == "__main__":
+        # Do not play audio during pytest
+        play_audio(augmented_audio)
+
 
 def test_pitch_shifting():
     # Mostly testing that it doesn't crash
@@ -118,13 +130,16 @@ def test_pitch_shifting():
         len(n_steps),
         orig_shape[-1],
     )
+    if __name__ == "__main__":
+        # Do not play audio during pytest
+        play_audio(augmented_audio)
 
 
 def test_lowpass_filter():
     # Mostly testing that it doesn't crash and that shapes are correct.
     audio_with_sr = make_test_audio()
 
-    cutoff_freqs = np.arange(1000, 15001, 1000)
+    cutoff_freqs = np.geomspace(100, 15001, 7)
     transform = audiomanifolds.transformations.LowPassFilter(cutoff_freqs)
     orig_shape = audio_with_sr[0].shape
 
@@ -134,3 +149,21 @@ def test_lowpass_filter():
         len(cutoff_freqs),
         orig_shape[-1],
     )
+
+    if __name__ == "__main__":
+        # Do not play audio during pytest
+        play_audio(augmented_audio)
+
+
+if __name__ == "__main__":
+    # Running without pytest to hear augmented audio
+    print("Testing Gain with floating point audio...")
+    test_gain_floatingpoint()
+    print("Testing Gain with integer audio...")
+    test_gain_integer()
+    print("Testing Time Stretching...")
+    test_time_stretching()
+    print("Testing Pitch Shifting...")
+    test_pitch_shifting()
+    print("Testing Low-pass Filter...")
+    test_lowpass_filter()

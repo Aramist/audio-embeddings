@@ -7,7 +7,7 @@ import numpy as np
 import soundfile as sf
 import torch
 
-from audiomanifolds.embeddings import CLAPAudioEmbedder, PannEmbedder
+from audiomanifolds.embeddings import CLAPAudioEmbedder, EncodecEmbedder, PannEmbedder
 
 TEST_AUDIO_PATH = Path(__file__).parent / "steelpan.wav"
 
@@ -57,3 +57,12 @@ def test_CLAP():
     embeddings = model(audio_with_sr)
 
     assert embeddings.cpu().numpy().shape == (*audio_with_sr[0].shape[:-1], 512)
+
+
+def test_Encodec():
+    model = EncodecEmbedder.from_pretrained()
+    audio_with_sr = make_test_audio(model.expected_sample_rate)
+
+    embeddings = model(audio_with_sr)
+
+    assert embeddings.shape == (*audio_with_sr[0].shape[:-1], model.embedding_dim)
