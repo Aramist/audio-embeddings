@@ -1,6 +1,7 @@
 import numpy as np
 import pedalboard
 import torch
+from joblib import Parallel, delayed
 
 from .base import AudioTransformation
 
@@ -81,13 +82,32 @@ class TimeStretching(AudioTransformation):
         audio_np = audio.cpu().numpy()
         _, orig_length = audio_np.shape
         stretched_audios = []
-        for ratio in self.ratios:
-            stretched_audio = pedalboard.time_stretch(
-                audio_np,
-                samplerate=sample_rate,
-                stretch_factor=ratio.item(),
-                high_quality=False,
+        if len(self.ratios) < 10:
+            for ratio in self.ratios:
+                stretched_audios.append(
+                    pedalboard.time_stretch(
+                        audio_np,
+                        samplerate=sample_rate,
+                        stretch_factor=ratio.item(),
+                        high_quality=False,
+                    )
+                )
+        else:
+            stretched_audios = Parallel(n_jobs=-1, return_as="list")(
+                [
+                    delayed(
+                        lambda ratio: pedalboard.time_stretch(
+                            audio_np,
+                            samplerate=sample_rate,
+                            stretch_factor=ratio.item(),
+                            high_quality=False,
+                        )
+                    )(ratio)
+                    for ratio in self.ratios
+                ]
             )
+
+        def pad_or_truncate(stretched_audio):
             # Pad or truncate to original audio length
             new_len = stretched_audio.shape[-1]
             if new_len < orig_length:
@@ -97,8 +117,9 @@ class TimeStretching(AudioTransformation):
                 stretched_audio = np.pad(stretched_audio, padding, "constant")
             elif new_len > orig_length:
                 stretched_audio = stretched_audio[..., :orig_length]
-            stretched_audios.append(stretched_audio)
+            return stretched_audio
 
+        stretched_audios = list(map(pad_or_truncate, stretched_audios))
         stretched_audios = np.stack(
             stretched_audios, axis=1
         )  # (batch, ratios, samples)
@@ -138,10 +159,28 @@ class PitchShifting(AudioTransformation):
         """
 
         audio_np = audio.cpu().numpy()
-        shifted_audios = [shifter(audio_np, sample_rate) for shifter in self.shifters]
+        if len(self.shifters) < 10:
+            shifted_audios = [
+                shifter(audio_np, sample_rate) for shifter in self.shifters
+            ]
+            shifted_audios = torch.from_numpy(np.stack(shifted_audios, axis=1)).to(
+                audio.device
+            )
+        else:
+            shifted_audios = Parallel(n_jobs=-1, return_as="list")(
+                [
+                    delayed(
+                        lambda n_steps: torch.from_numpy(
+                            pedalboard.PitchShift(semitones=n_steps.item())(
+                                audio_np, sample_rate
+                            )
+                        )
+                    )(n_step)
+                    for n_step in self.n_steps
+                ]
+            )
 
-        shifted_audios = np.stack(shifted_audios, axis=1)
-        shifted_audios = torch.from_numpy(shifted_audios).to(audio.device)
+            shifted_audios = torch.stack(shifted_audios, dim=1).to(audio.device)
         return shifted_audios, sample_rate
 
 

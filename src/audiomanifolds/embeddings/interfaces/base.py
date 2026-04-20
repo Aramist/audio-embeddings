@@ -1,5 +1,5 @@
 import torch
-from librosa import resample
+import torchaudio
 
 
 class AudioEmbedder(torch.nn.Module):
@@ -63,13 +63,10 @@ class AudioEmbedder(torch.nn.Module):
                     f"Input sample rate {audio[1]} does not match expected sample rate {self.expected_sample_rate} and auto_convert_sample_rate is False."
                 )
             # resample audio
-            orig_device = signal.device
-            resampled_audio = resample(
-                signal.cpu().numpy(),
-                orig_sr=audio[1],
-                target_sr=self.expected_sample_rate,
-            )
-            resampled_audio = torch.from_numpy(resampled_audio).float().to(orig_device)
+            # orig_device = signal.device
+            resampled_audio = torchaudio.transforms.Resample(
+                orig_freq=int(audio[1]), new_freq=int(self.expected_sample_rate)
+            )(signal).float()
             signal = resampled_audio
         else:
             signal = signal.float()
