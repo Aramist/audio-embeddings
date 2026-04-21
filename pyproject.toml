@@ -17,6 +17,7 @@ dependencies = [
     "numpy>=2.3.5",
     "pedalboard>=0.9.22",
     "pytest>=9.0.1",
+    "pyyaml>=6.0.3",
     "requests>=2.32.5",
     "scikit-dimension>=0.3.4",
     "scipy>=1.16.3",
