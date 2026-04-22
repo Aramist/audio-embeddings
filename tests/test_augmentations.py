@@ -139,20 +139,59 @@ def test_lowpass_filter():
     # Mostly testing that it doesn't crash and that shapes are correct.
     audio_with_sr = make_test_audio()
 
-    cutoff_freqs = np.geomspace(100, 15001, 7)
-    transform = audiomanifolds.transformations.LowPassFilter(cutoff_freqs)
+    cutoff_frequencies = np.geomspace(100, 15001, 7)
+    transform = audiomanifolds.transformations.LowPassFilter(
+        cutoff_frequencies=cutoff_frequencies
+    )
     orig_shape = audio_with_sr[0].shape
 
     augmented_audio = transform(audio_with_sr)
     assert augmented_audio[0].shape == (
         *orig_shape[:-1],
-        len(cutoff_freqs),
+        len(cutoff_frequencies),
         orig_shape[-1],
     )
 
     if __name__ == "__main__":
         # Do not play audio during pytest
         play_audio(augmented_audio)
+
+
+def test_noops():
+    audio_with_sr = make_test_audio()
+
+    # Test that no-op transformations don't change the audio
+    gain_transform_a = audiomanifolds.transformations.Gain(gains=[0])
+    gain_transform_b = audiomanifolds.transformations.Gain(gains=[float("nan")])
+    time_stretch_transform_a = audiomanifolds.transformations.TimeStretching(
+        ratios=[1.0]
+    )
+    time_stretch_transform_b = audiomanifolds.transformations.TimeStretching(
+        ratios=[float("nan")]
+    )
+    pitch_shift_transform_a = audiomanifolds.transformations.PitchShifting(n_steps=[0])
+    pitch_shift_transform_b = audiomanifolds.transformations.PitchShifting(
+        n_steps=[float("nan")]
+    )
+    lowpass_transform_a = audiomanifolds.transformations.LowPassFilter(
+        cutoff_frequencies=[audio_with_sr[1] / 2]
+    )
+    lowpass_transform_b = audiomanifolds.transformations.LowPassFilter(
+        cutoff_frequencies=[float("nan")]
+    )
+
+    for transform in [
+        gain_transform_a,
+        gain_transform_b,
+        time_stretch_transform_a,
+        time_stretch_transform_b,
+        pitch_shift_transform_a,
+        pitch_shift_transform_b,
+        lowpass_transform_a,
+        lowpass_transform_b,
+    ]:
+        augmented_audio = transform(audio_with_sr)
+        assert torch.allclose(augmented_audio[0], audio_with_sr[0])
 
 
 if __name__ == "__main__":
