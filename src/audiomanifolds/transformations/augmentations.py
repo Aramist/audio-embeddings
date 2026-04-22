@@ -32,6 +32,8 @@ class Gain(AudioTransformation):
             tuple[torch.Tensor, float]: Transformed audio waveform tensor and its sample rate. Output audio will
                 have expanded shape: (batch_size, num_gains, num_samples)
         """
+        # Add nan as an explicit no-op value
+        self.gains[torch.isnan(self.gains)] = 0.0
         ratios = torch.pow(10.0, self.gains / 20.0).to(audio.device).float()
         # Do computations on floats and recast to original type.
         # Carefully handle clipping on integer types
@@ -79,11 +81,17 @@ class TimeStretching(AudioTransformation):
                 have expanded shape: (batch_size, num_ratios, num_samples)
         """
 
+        def is_noop(ratio: float) -> bool:
+            return np.isnan(ratio) or np.abs(ratio - 1.0) < 1e-3
+
         audio_np = audio.cpu().numpy()
         _, orig_length = audio_np.shape
         stretched_audios = []
         if len(self.ratios) < 10:
             for ratio in self.ratios:
+                if is_noop(ratio.item()):
+                    stretched_audios.append(audio_np)
+                    continue
                 stretched_audios.append(
                     pedalboard.time_stretch(
                         audio_np,
@@ -96,11 +104,15 @@ class TimeStretching(AudioTransformation):
             stretched_audios = Parallel(n_jobs=-1, return_as="list")(
                 [
                     delayed(
-                        lambda ratio: pedalboard.time_stretch(
-                            audio_np,
-                            samplerate=sample_rate,
-                            stretch_factor=ratio.item(),
-                            high_quality=False,
+                        lambda ratio: (
+                            pedalboard.time_stretch(
+                                audio_np,
+                                samplerate=sample_rate,
+                                stretch_factor=ratio.item(),
+                                high_quality=False,
+                            )
+                            if not is_noop(ratio.item())
+                            else audio_np
                         )
                     )(ratio)
                     for ratio in self.ratios
@@ -140,9 +152,6 @@ class PitchShifting(AudioTransformation):
         super(PitchShifting, self).__init__()
         if not isinstance(n_steps, torch.Tensor):
             n_steps = torch.tensor(n_steps)
-        self.shifters = [
-            pedalboard.PitchShift(semitones=n_step.item()) for n_step in n_steps
-        ]
         self.n_steps = n_steps
 
     def apply(self, audio: torch.Tensor, sample_rate: float):
@@ -158,10 +167,18 @@ class PitchShifting(AudioTransformation):
                 have expanded shape: (batch_size, num_steps, num_samples)
         """
 
+        def is_noop(n_step: float) -> bool:
+            return np.isnan(n_step) or np.abs(n_step) < 1e-3
+
         audio_np = audio.cpu().numpy()
-        if len(self.shifters) < 10:
+        if len(self.n_steps) < 10:
             shifted_audios = [
-                shifter(audio_np, sample_rate) for shifter in self.shifters
+                (
+                    pedalboard.PitchShift(n_step.item())(audio_np, sample_rate)
+                    if not is_noop(n_step.item())
+                    else audio_np
+                )
+                for n_step in self.n_steps
             ]
             shifted_audios = torch.from_numpy(np.stack(shifted_audios, axis=1)).to(
                 audio.device
@@ -170,10 +187,14 @@ class PitchShifting(AudioTransformation):
             shifted_audios = Parallel(n_jobs=-1, return_as="list")(
                 [
                     delayed(
-                        lambda n_steps: torch.from_numpy(
-                            pedalboard.PitchShift(semitones=n_steps.item())(
-                                audio_np, sample_rate
+                        lambda n_steps: (
+                            torch.from_numpy(
+                                pedalboard.PitchShift(semitones=n_steps.item())(
+                                    audio_np, sample_rate
+                                )
                             )
+                            if not is_noop(n_steps.item())
+                            else audio_np
                         )
                     )(n_step)
                     for n_step in self.n_steps
@@ -199,10 +220,6 @@ class LowPassFilter(AudioTransformation):
         if not isinstance(cutoff_frequencies, torch.Tensor):
             cutoff_frequencies = torch.tensor(cutoff_frequencies)
         self.cutoff_frequencies = cutoff_frequencies
-        self.filters = [
-            pedalboard.LowpassFilter(cutoff_frequency_hz=cutoff_freq.item())
-            for cutoff_freq in self.cutoff_frequencies
-        ]
 
     def apply(self, audio: torch.Tensor, sample_rate: float):
         """
@@ -217,10 +234,38 @@ class LowPassFilter(AudioTransformation):
                 have expanded shape: (batch_size, num_filters, num_samples)
         """
 
+        def is_noop(cutoff_freq: float) -> bool:
+            return np.isnan(cutoff_freq) or cutoff_freq >= sample_rate / 2.0
+
         audio_np = audio.detach().cpu().numpy()
-        filtered_audios = np.stack(
-            [filt(audio_np, sample_rate).astype(np.float32) for filt in self.filters],
-            axis=1,
-        )
+        if len(self.cutoff_frequencies) < 10:
+            filtered_audios = np.stack(
+                [
+                    (
+                        pedalboard.LowpassFilter(
+                            cutoff_frequency_hz=cutoff_freq.item()
+                        )(audio_np, sample_rate)
+                        if not is_noop(cutoff_freq.item())
+                        else audio_np
+                    )
+                    for cutoff_freq in self.cutoff_frequencies
+                ],
+                axis=1,
+            )
+        else:
+            jobs = [
+                delayed(
+                    lambda cutoff_freq: (
+                        pedalboard.LowpassFilter(
+                            cutoff_frequency_hz=cutoff_freq.item()
+                        )(audio_np, sample_rate)
+                        if not is_noop(cutoff_freq.item())
+                        else audio_np
+                    )
+                )(cutoff_freq)
+                for cutoff_freq in self.cutoff_frequencies
+            ]
+            filtered_audios = Parallel(n_jobs=-1, return_as="list")(jobs)
+            filtered_audios = np.stack(filtered_audios, axis=1)
 
         return torch.from_numpy(filtered_audios).to(audio.device), sample_rate
